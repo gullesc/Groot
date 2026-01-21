@@ -9,7 +9,7 @@
  * BEADS commands are executed via CLI, not a direct API.
  */
 
-import { execSync, exec } from 'child_process';
+import { execSync } from 'child_process';
 import { BeadsIssue, BeadsContext } from '../types';
 
 /**

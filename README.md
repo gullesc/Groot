@@ -27,39 +27,50 @@ GROOT consists of three specialized AI agents that collaborate to create and del
 ## 🚀 Quick Start
 
 ```bash
-# Install dependencies
+# 1. Install dependencies
 npm install
 
-# Build the project
+# 2. Install BEADS (if not already installed)
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+# Add BEADS to your PATH
+export PATH="$PATH:$HOME/.local/bin"
+
+# 3. Set up your environment
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+
+# 4. Build the project
 npm run build
 
-# Plant a new curriculum
-groot plant "Building RAG Applications"
-
-# Ask the tutor a question
-groot ask "What is retrieval augmented generation?"
+# 5. Try asking the tutor a question (Phase 1 ✅)
+npm run start -- ask "What is TypeScript?"
 
 # Check your progress
-groot status
-
-# Start a learning session
-groot wake
-
-# End a session (saves state)
-groot rest
+npm run start -- status
 ```
+
+## 🌱 Current Implementation Status
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | ✅ Complete | Single agent architecture with Bark (Tutor) agent |
+| Phase 2 | 🚧 Planned | Curriculum generation with Seedling agent |
+| Phase 3 | 🚧 Planned | Multi-agent orchestration with Canopy agent |
+| Phase 4 | 🚧 Planned | Progress tracking and adaptation |
+| Phase 5 | 🚧 Planned | Project scaffolding |
+| Phase 6 | 🚧 Planned | Extensibility and distribution |
 
 ## 📋 CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `groot plant <topic>` | Generate a new curriculum for a topic |
-| `groot ask <question>` | Ask the Tutor agent a question |
-| `groot grow` | Trigger multi-agent curriculum review |
-| `groot seed` | Scaffold project files for current phase |
-| `groot status` | Show progress dashboard and growth stage |
-| `groot wake` | Start a session, load context from BEADS |
-| `groot rest` | End a session, save state, generate handoff |
+| Command | Status | Description |
+|---------|--------|-------------|
+| `groot ask <question>` | ✅ Working | Ask the Bark (Tutor) agent a question |
+| `groot status` | ✅ Working | Show progress dashboard and BEADS status |
+| `groot plant <topic>` | 🚧 Phase 2 | Generate a new curriculum for a topic |
+| `groot grow` | 🚧 Phase 3 | Trigger multi-agent curriculum review |
+| `groot wake` | 🚧 Phase 4 | Start a session, load context from BEADS |
+| `groot rest` | 🚧 Phase 4 | End a session, save state, generate handoff |
+| `groot seed` | 🚧 Phase 5 | Scaffold project files for current phase |
 
 ## 🛠️ Tech Stack
 

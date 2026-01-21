@@ -18,7 +18,6 @@ import chalk from 'chalk';
 import { loadConfig, validateConfig } from '../core/config';
 import { isBeadsAvailable, isBeadsInitialized, getReadyWork } from '../core/beads';
 import { createBarkAgent } from '../agents/bark';
-import { GROWTH_STAGE_ICONS } from '../types';
 
 const program = new Command();
 

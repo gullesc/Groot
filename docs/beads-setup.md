@@ -1,5 +1,7 @@
 # GROOT - Initial BEADS Setup
 
+> **Status Update:** Phase 0 and Phase 1 are complete! BEADS is configured and the Bark (Tutor) agent is fully functional.
+
 This file contains the initial epics and tasks to import into BEADS.
 Run these commands after `bd init` to set up your task tracking.
 
