@@ -42,8 +42,11 @@ cp .env.example .env
 # 4. Build the project
 npm run build
 
-# 5. Try asking the tutor a question (Phase 1 ✅)
+# 5. Try asking the tutor a question
 npm run start -- ask "What is TypeScript?"
+
+# 6. Generate a curriculum for a topic (Phase 2 ✅)
+npm run start -- plant "Building REST APIs" -o ./my-curriculum.md
 
 # Check your progress
 npm run start -- status
@@ -54,7 +57,7 @@ npm run start -- status
 | Phase | Status | Description |
 |-------|--------|-------------|
 | Phase 1 | ✅ Complete | Single agent architecture with Bark (Tutor) agent |
-| Phase 2 | 🚧 Planned | Curriculum generation with Seedling agent |
+| Phase 2 | ✅ Complete | Curriculum generation with Seedling agent |
 | Phase 3 | 🚧 Planned | Multi-agent orchestration with Canopy agent |
 | Phase 4 | 🚧 Planned | Progress tracking and adaptation |
 | Phase 5 | 🚧 Planned | Project scaffolding |
@@ -66,7 +69,7 @@ npm run start -- status
 |---------|--------|-------------|
 | `groot ask <question>` | ✅ Working | Ask the Bark (Tutor) agent a question |
 | `groot status` | ✅ Working | Show progress dashboard and BEADS status |
-| `groot plant <topic>` | 🚧 Phase 2 | Generate a new curriculum for a topic |
+| `groot plant <topic>` | ✅ Working | Generate a new curriculum for a topic |
 | `groot grow` | 🚧 Phase 3 | Trigger multi-agent curriculum review |
 | `groot wake` | 🚧 Phase 4 | Start a session, load context from BEADS |
 | `groot rest` | 🚧 Phase 4 | End a session, save state, generate handoff |
