@@ -34,4 +34,13 @@ export {
   addDependency,
   getBeadsContext,
   syncBeads,
+  // Orchestrator exports
+  Orchestrator,
+  createOrchestrator,
+  // Journal exports
+  saveJournalEntry,
+  listJournalEntries,
+  getJournalEntry,
+  generateSlug,
+  getJournalPath,
 } from './core';

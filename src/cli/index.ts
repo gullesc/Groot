@@ -18,7 +18,14 @@ import chalk from 'chalk';
 import { loadConfig, validateConfig } from '../core/config';
 import { isBeadsAvailable, isBeadsInitialized, getReadyWork } from '../core/beads';
 import { createBarkAgent } from '../agents/bark';
-import { Curriculum } from '../types';
+import { createOrchestrator } from '../core/orchestrator';
+import {
+  saveJournalEntry,
+  listJournalEntries,
+  getJournalEntry,
+  getJournalPath,
+} from '../core/journal';
+import { Curriculum, AgentFeedback } from '../types';
 
 const program = new Command();
 
@@ -260,15 +267,310 @@ program
   });
 
 // ============================================================================
-// groot grow - Multi-agent collaboration (placeholder)
+// groot grow - Multi-agent collaboration
 // ============================================================================
 program
-  .command('grow')
-  .description('Grow - trigger multi-agent curriculum review')
-  .action(() => {
+  .command('grow [topic...]')
+  .description('Grow - generate and review curriculum with multi-agent collaboration')
+  .option('-f, --file <file>', 'Review existing curriculum from file (JSON)')
+  .option('-o, --output <file>', 'Output file (markdown or JSON)', './curriculum.md')
+  .option('--json', 'Output as JSON instead of markdown')
+  .option('--beads', 'Create BEADS epics and tasks from curriculum')
+  .option('-v, --verbose', 'Show detailed output')
+  .action(async (topicParts: string[], options) => {
+    const config = loadConfig();
+    const { valid, errors } = validateConfig(config);
+
+    if (!valid) {
+      console.error(chalk.red('Configuration error:'));
+      errors.forEach(err => console.error(chalk.red(`  - ${err}`)));
+      console.error(chalk.yellow('\nSet your API key: export ANTHROPIC_API_KEY=your-key'));
+      process.exit(1);
+    }
+
+    // Determine if we're generating new or reviewing existing
+    const fromFile = !!options.file;
+    const topic = fromFile ? options.file : topicParts.join(' ');
+
+    if (!topic) {
+      console.error(chalk.red('Please provide a topic or --file option'));
+      console.error(chalk.gray('Usage: groot grow "Building REST APIs"'));
+      console.error(chalk.gray('       groot grow --file curriculum.json'));
+      process.exit(1);
+    }
+
     console.log(LOGO);
-    console.log(chalk.yellow(`🌳 Multi-agent orchestration is still growing...`));
-    console.log(chalk.gray(`   This feature will be implemented in Phase 3.`));
+    console.log(chalk.cyan('Multi-Agent Curriculum Review\n'));
+
+    // Track feedback for display
+    const allFeedback: AgentFeedback[] = [];
+
+    // Create orchestrator with callbacks for progress display
+    const orchestrator = createOrchestrator(
+      { apiKey: config.anthropicApiKey!, verbose: options.verbose },
+      {
+        onPhaseStart: (phase: string) => {
+          const phaseNames: Record<string, string> = {
+            generate: '🌿 Seedling is generating curriculum...',
+            'technical-review': '🌲 Canopy is reviewing technical feasibility...',
+            'pedagogical-review': '🪵 Bark is reviewing pedagogical soundness...',
+            merge: '📋 Merging feedback...',
+          };
+          console.log(chalk.green(phaseNames[phase] || `Starting ${phase}...`));
+        },
+        onPhaseComplete: (phase: string, success: boolean) => {
+          if (success && options.verbose) {
+            console.log(chalk.gray(`   ✓ ${phase} complete`));
+          }
+        },
+        onFeedback: (feedback: AgentFeedback) => {
+          allFeedback.push(feedback);
+          const icon =
+            feedback.feedbackType === 'blocker'
+              ? '🛑'
+              : feedback.feedbackType === 'concern'
+              ? '⚠️ '
+              : feedback.feedbackType === 'suggestion'
+              ? '💡'
+              : '✅';
+          const severityColor =
+            feedback.severity === 'critical'
+              ? chalk.red
+              : feedback.severity === 'high'
+              ? chalk.yellow
+              : chalk.gray;
+          console.log(severityColor(`   ${icon} ${feedback.message}`));
+        },
+        onLog: (message: string) => {
+          if (options.verbose) {
+            console.log(chalk.gray(`   ${message}`));
+          }
+        },
+      }
+    );
+
+    try {
+      const result = await orchestrator.orchestrateGrow(topic, { fromFile });
+
+      // Display summary
+      console.log();
+      if (result.success) {
+        console.log(chalk.green('✅ Curriculum review complete'));
+      } else {
+        console.log(chalk.yellow('⚠️  Review complete with unresolved issues'));
+      }
+
+      // Show applied changes
+      if (result.appliedChanges.length > 0) {
+        console.log(chalk.cyan(`\nApplied ${result.appliedChanges.length} changes:`));
+        result.appliedChanges.slice(0, 5).forEach(change => {
+          console.log(chalk.gray(`   • ${change}`));
+        });
+        if (result.appliedChanges.length > 5) {
+          console.log(chalk.gray(`   ... and ${result.appliedChanges.length - 5} more`));
+        }
+      }
+
+      // Show unresolved issues
+      if (result.unresolvedIssues.length > 0) {
+        console.log(chalk.yellow(`\n${result.unresolvedIssues.length} unresolved issues:`));
+        result.unresolvedIssues.forEach(issue => {
+          console.log(chalk.yellow(`   🚩 ${issue.message}`));
+          if (issue.suggestedChange) {
+            console.log(chalk.gray(`      Fix: ${issue.suggestedChange}`));
+          }
+        });
+      }
+
+      // Create BEADS issues if requested
+      if (options.beads) {
+        if (!isBeadsAvailable() || !isBeadsInitialized()) {
+          console.log(chalk.yellow('\n⚠️  BEADS is not available or initialized.'));
+          console.log(chalk.gray('   Skipping BEADS integration.'));
+        } else {
+          console.log(chalk.cyan('\n📋 Creating BEADS epics and tasks...'));
+          const { createBeadsFromCurriculum, linkCurriculumToBeads } = await import(
+            '../core/curriculum-beads'
+          );
+          const beadsIds = createBeadsFromCurriculum(result.finalCurriculum);
+          result.finalCurriculum = linkCurriculumToBeads(result.finalCurriculum, beadsIds);
+          console.log(
+            chalk.green(`✅ Created ${result.finalCurriculum.phases.length} phase epics with tasks`)
+          );
+        }
+      }
+
+      // Output curriculum
+      if (options.json) {
+        const { writeCurriculumJSON } = await import('../core/curriculum-output');
+        await writeCurriculumJSON(result.finalCurriculum, options.output);
+        console.log(chalk.green(`\n📄 Curriculum saved to ${options.output}`));
+      } else {
+        const { writeCurriculumMarkdown } = await import('../core/curriculum-output');
+        await writeCurriculumMarkdown(result.finalCurriculum, options.output);
+        console.log(chalk.green(`\n📄 Curriculum saved to ${options.output}`));
+      }
+
+      // Next steps
+      console.log(chalk.cyan('\nNext steps:'));
+      console.log(chalk.gray('  1. Review the curriculum'));
+      console.log(chalk.gray('  2. Use "groot ask" to learn about concepts'));
+      if (options.beads) {
+        console.log(chalk.gray('  3. Run "bd ready" to see ready work in BEADS'));
+      }
+    } catch (error) {
+      console.error(chalk.red('\n❌ Error during orchestration:'), error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
+// groot remember - Learning journal
+// ============================================================================
+program
+  .command('remember [title...]')
+  .description('Remember - capture learning explanations as journal entries')
+  .option('-l, --list', 'List all journal entries')
+  .option('-v, --view <slug>', 'View a specific journal entry')
+  .option('-c, --content <content>', 'Content to save (if not provided, opens editor prompt)')
+  .option('--phase <phase>', 'Context: current phase name')
+  .option('--activity <activity>', 'Context: current activity')
+  .option('--curriculum <id>', 'Context: curriculum ID')
+  .action(async (titleParts: string[], options) => {
+    console.log(LOGO);
+
+    // List entries
+    if (options.list) {
+      const entries = listJournalEntries();
+
+      if (entries.length === 0) {
+        console.log(chalk.gray('No journal entries yet.'));
+        console.log(chalk.gray('\nCreate one with: groot remember "My first insight"'));
+        return;
+      }
+
+      console.log(chalk.cyan('📓 Learning Journal Entries\n'));
+      entries.forEach(entry => {
+        console.log(chalk.white(`  ${entry.date}  ${entry.title}`));
+        console.log(chalk.gray(`             slug: ${entry.slug}`));
+      });
+      console.log(chalk.gray(`\n${entries.length} entries total`));
+      console.log(chalk.gray(`\nView an entry: groot remember --view <slug>`));
+      return;
+    }
+
+    // View specific entry
+    if (options.view) {
+      const entry = getJournalEntry(options.view);
+
+      if (!entry) {
+        console.error(chalk.red(`Entry not found: ${options.view}`));
+        console.log(chalk.gray('\nUse "groot remember --list" to see available entries'));
+        process.exit(1);
+      }
+
+      console.log(chalk.cyan(`📓 ${entry.title}\n`));
+      const dateStr = entry.capturedAt instanceof Date && !isNaN(entry.capturedAt.getTime())
+        ? entry.capturedAt.toLocaleDateString()
+        : 'Unknown date';
+      console.log(chalk.gray(`Captured: ${dateStr}`));
+
+      if (entry.context) {
+        if (entry.context.phase) console.log(chalk.gray(`Phase: ${entry.context.phase}`));
+        if (entry.context.activity) console.log(chalk.gray(`Activity: ${entry.context.activity}`));
+      }
+
+      console.log(chalk.cyan('\n─'.repeat(60) + '\n'));
+      console.log(entry.content);
+
+      if (entry.takeaways && entry.takeaways.length > 0) {
+        console.log(chalk.cyan('\n📌 Key Takeaways:'));
+        entry.takeaways.forEach(t => console.log(chalk.white(`  • ${t}`)));
+      }
+
+      if (entry.relatedTopics && entry.relatedTopics.length > 0) {
+        console.log(chalk.gray('\nRelated Topics:'));
+        entry.relatedTopics.forEach(t => console.log(chalk.gray(`  • ${t}`)));
+      }
+
+      return;
+    }
+
+    // Create new entry
+    const title = titleParts.join(' ');
+
+    if (!title) {
+      console.error(chalk.red('Please provide a title for the journal entry'));
+      console.error(chalk.gray('Usage: groot remember "How the Orchestrator works"'));
+      console.error(chalk.gray('       groot remember --list'));
+      console.error(chalk.gray('       groot remember --view <slug>'));
+      process.exit(1);
+    }
+
+    // Get content
+    let content = options.content;
+
+    if (!content) {
+      // Prompt for content
+      const readline = await import('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      console.log(chalk.cyan(`📝 Creating journal entry: "${title}"\n`));
+      console.log(chalk.gray('Enter your content (end with an empty line):'));
+
+      const lines: string[] = [];
+      let emptyLineCount = 0;
+
+      content = await new Promise<string>(resolve => {
+        const promptLine = () => {
+          rl.question('', line => {
+            if (line === '') {
+              emptyLineCount++;
+              if (emptyLineCount >= 2) {
+                rl.close();
+                resolve(lines.join('\n'));
+                return;
+              }
+              lines.push(''); // Keep single empty lines
+            } else {
+              emptyLineCount = 0;
+              lines.push(line);
+            }
+            promptLine();
+          });
+        };
+        promptLine();
+      });
+    }
+
+    if (!content || content.trim() === '') {
+      console.error(chalk.red('No content provided. Entry not created.'));
+      process.exit(1);
+    }
+
+    // Build context
+    const context =
+      options.phase || options.activity || options.curriculum
+        ? {
+            phase: options.phase,
+            activity: options.activity,
+            curriculumId: options.curriculum,
+          }
+        : undefined;
+
+    // Save entry
+    const entry = saveJournalEntry(title, content, context);
+
+    console.log(chalk.green('\n📓 Learning Journal Entry Created'));
+    console.log(chalk.gray(`   File: ${getJournalPath()}/${new Date().toISOString().split('T')[0]}-${entry.slug}.md`));
+    if (context) {
+      if (context.phase) console.log(chalk.gray(`   Phase: ${context.phase}`));
+      if (context.activity) console.log(chalk.gray(`   Activity: ${context.activity}`));
+    }
+    console.log(chalk.cyan(`\n   💡 Tip: Use 'groot remember --list' to see all entries`));
   });
 
 // ============================================================================

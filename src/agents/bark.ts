@@ -10,7 +10,7 @@
  */
 
 import { BaseAgent } from './base';
-import { AgentTool } from '../types';
+import { AgentTool, AgentFeedback, Curriculum } from '../types';
 
 export class BarkAgent extends BaseAgent {
   readonly name = 'bark' as const;
@@ -131,9 +131,9 @@ Remember: Your job is not to give answers, but to help understanding take root.`
         required: ['topic'],
       },
       execute: async (input: unknown) => {
-        const { topic, understanding = 'developing', notes } = input as { 
-          topic: string; 
-          understanding?: string; 
+        const { topic, understanding = 'developing', notes } = input as {
+          topic: string;
+          understanding?: string;
           notes?: string;
         };
         // TODO: Integrate with BEADS in Phase 1
@@ -146,7 +146,184 @@ Remember: Your job is not to give answers, but to help understanding take root.`
         };
       },
     },
+    {
+      name: 'review_pedagogy',
+      description: 'Assess the pedagogical soundness of a curriculum - learning flow, progression, and engagement',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          learningFlowScore: {
+            type: 'number',
+            description: 'Score for how well concepts flow from one to the next (1-10)',
+            minimum: 1,
+            maximum: 10,
+          },
+          progressionAssessment: {
+            type: 'string',
+            enum: ['too_fast', 'appropriate', 'too_slow'],
+            description: 'Assessment of learning progression pace',
+          },
+          engagementLevel: {
+            type: 'string',
+            enum: ['low', 'medium', 'high'],
+            description: 'Predicted learner engagement level',
+          },
+          strengths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Pedagogical strengths of the curriculum',
+          },
+          concerns: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                issue: { type: 'string' },
+                phaseNumber: { type: 'number' },
+                severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+                suggestedFix: { type: 'string' },
+              },
+            },
+            description: 'Pedagogical concerns with suggested improvements',
+          },
+          handsOnBalance: {
+            type: 'string',
+            description: 'Assessment of the balance between theory and hands-on practice',
+          },
+          motivationFactors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Elements that will keep learners motivated',
+          },
+          overallAssessment: {
+            type: 'string',
+            description: 'Summary of pedagogical soundness',
+          },
+        },
+        required: ['learningFlowScore', 'progressionAssessment', 'engagementLevel', 'overallAssessment'],
+      },
+      execute: async (input: unknown) => {
+        const review = input as {
+          learningFlowScore: number;
+          progressionAssessment: 'too_fast' | 'appropriate' | 'too_slow';
+          engagementLevel: 'low' | 'medium' | 'high';
+          strengths?: string[];
+          concerns?: Array<{ issue: string; phaseNumber?: number; severity: string; suggestedFix: string }>;
+          handsOnBalance?: string;
+          motivationFactors?: string[];
+          overallAssessment: string;
+        };
+
+        // Convert concerns to AgentFeedback format
+        const feedback: AgentFeedback[] = (review.concerns || []).map(concern => ({
+          agentName: 'bark' as const,
+          feedbackType: concern.severity === 'critical' ? 'blocker' : 'concern',
+          category: 'pedagogical' as const,
+          target: {
+            type: concern.phaseNumber ? 'phase' as const : 'curriculum' as const,
+            phaseNumber: concern.phaseNumber,
+          },
+          message: concern.issue,
+          severity: concern.severity as 'low' | 'medium' | 'high' | 'critical',
+          suggestedChange: concern.suggestedFix,
+        }));
+
+        // Add progression feedback if not appropriate
+        if (review.progressionAssessment !== 'appropriate') {
+          feedback.push({
+            agentName: 'bark',
+            feedbackType: 'concern',
+            category: 'pedagogical',
+            target: { type: 'curriculum' },
+            message: `Learning progression is ${review.progressionAssessment === 'too_fast' ? 'too fast - learners may feel overwhelmed' : 'too slow - learners may lose interest'}`,
+            severity: 'medium',
+            suggestedChange: review.progressionAssessment === 'too_fast'
+              ? 'Add more scaffolding or break complex topics into smaller steps'
+              : 'Combine some phases or add more challenging deliverables',
+          });
+        }
+
+        return {
+          ...review,
+          feedback,
+          message: `Pedagogical review complete: ${review.learningFlowScore}/10 learning flow`,
+        };
+      },
+    },
   ];
+
+  /**
+   * Review a curriculum and return structured pedagogical feedback
+   */
+  async reviewCurriculum(curriculum: Curriculum): Promise<{
+    feedback: AgentFeedback[];
+    pedagogyScore: number;
+    summary: string;
+  }> {
+    // Set curriculum context
+    this.setContext({ curriculum });
+
+    // Build review prompt
+    const prompt = `Please review this curriculum from a pedagogical perspective:
+
+## Curriculum: ${curriculum.title}
+**Topic:** ${curriculum.topic}
+**Difficulty:** ${curriculum.metadata.difficulty}
+**Target Audience:** ${curriculum.metadata.targetAudience}
+**Total Hours:** ${curriculum.metadata.estimatedHours}
+
+## Phases:
+${curriculum.phases.map(phase => `
+### Phase ${phase.number}: ${phase.title}
+**Growth Stage:** ${phase.growthStage}
+**Estimated Hours:** ${phase.estimatedHours}
+
+**Objectives:**
+${phase.objectives.map(obj => `- ${obj.description}`).join('\n')}
+
+**Deliverables:**
+${phase.deliverables.map(del => `- ${del.title}: ${del.description}
+  Acceptance Criteria: ${del.acceptanceCriteria.join('; ')}`).join('\n')}
+
+**Key Concepts:**
+${phase.keyConcepts.map(kc => `- ${kc.term}: ${kc.definition}`).join('\n')}
+`).join('\n')}
+
+Please use the review_pedagogy tool to assess:
+1. Learning flow - do concepts build on each other naturally?
+2. Progression pace - is it appropriate for the target audience?
+3. Engagement - will learners stay motivated?
+4. Hands-on balance - enough practical exercises?
+5. Any pedagogical concerns that should be addressed`;
+
+    const response = await this.chat(prompt);
+
+    // Collect feedback from tool calls
+    const allFeedback: AgentFeedback[] = [];
+    let pedagogyScore = 7; // Default score
+
+    if (response.toolCalls) {
+      for (const toolCall of response.toolCalls) {
+        if (toolCall.output) {
+          const output = toolCall.output as { feedback?: AgentFeedback[]; learningFlowScore?: number };
+
+          if (output.feedback) {
+            allFeedback.push(...output.feedback);
+          }
+
+          if (output.learningFlowScore) {
+            pedagogyScore = output.learningFlowScore;
+          }
+        }
+      }
+    }
+
+    return {
+      feedback: allFeedback,
+      pedagogyScore,
+      summary: response.content,
+    };
+  }
 }
 
 // Export a factory function for easy instantiation

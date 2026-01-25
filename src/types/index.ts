@@ -219,3 +219,64 @@ export interface CommandResult {
   message: string;
   data?: unknown;
 }
+
+// ============================================================================
+// Orchestration Types (Phase 3)
+// ============================================================================
+
+export interface AgentFeedback {
+  agentName: AgentName;
+  feedbackType: 'approval' | 'concern' | 'suggestion' | 'blocker';
+  category: 'technical' | 'pedagogical' | 'sequencing' | 'scope';
+  target: {
+    type: 'curriculum' | 'phase' | 'deliverable';
+    phaseNumber?: number;
+    deliverableId?: string;
+  };
+  message: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  suggestedChange?: string;
+}
+
+export interface AgentHandoff {
+  fromAgent: AgentName;
+  toAgent: AgentName;
+  curriculum: Curriculum;
+  feedback: AgentFeedback[];
+  context: SharedContext;
+}
+
+export interface SharedContext {
+  originalTopic: string;
+  reviewRound: number;
+  agentContributions: Record<AgentName, string[]>;
+  consensusReached: boolean;
+}
+
+export interface OrchestrationResult {
+  success: boolean;
+  finalCurriculum: Curriculum;
+  allFeedback: AgentFeedback[];
+  appliedChanges: string[];
+  unresolvedIssues: AgentFeedback[];
+}
+
+// ============================================================================
+// Learning Journal Types (Phase 3)
+// ============================================================================
+
+export interface JournalEntry {
+  slug: string;
+  title: string;
+  content: string;
+  capturedAt: Date;
+  context?: JournalContext;
+  takeaways?: string[];
+  relatedTopics?: string[];
+}
+
+export interface JournalContext {
+  phase?: string;
+  curriculumId?: string;
+  activity?: string;
+}
