@@ -21,8 +21,23 @@ GROOT consists of three specialized AI agents that collaborate to create and del
 | Agent | Role |
 |-------|------|
 | 🌿 **Seedling** | The Curriculum Architect — Designs learning paths, phases, objectives, and sequencing |
-| 🪵 **Bark** | The Tutor — Answers questions, provides feedback, catches misconceptions |
-| 🌲 **Canopy** | The AI Architect — Advises on technical implementation, reviews designs |
+| 🪵 **Bark** | The Tutor — Answers questions, provides feedback, reviews pedagogical soundness |
+| 🌲 **Canopy** | The AI Architect — Reviews technical feasibility, suggests patterns, evaluates architecture |
+
+### Hub-and-Spoke Orchestration
+
+```
+           Orchestrator
+          /     |     \
+     Seedling  Bark  Canopy
+```
+
+Agents communicate through a central Orchestrator (not directly with each other). When you run `groot grow`:
+
+1. **Seedling** generates the curriculum structure
+2. **Canopy** reviews for technical feasibility
+3. **Bark** reviews for pedagogical soundness
+4. **Orchestrator** merges feedback and produces the final curriculum
 
 ## 🚀 Quick Start
 
@@ -42,11 +57,14 @@ cp .env.example .env
 # 4. Build the project
 npm run build
 
-# 5. Try asking the tutor a question
+# 5. Generate a curriculum with multi-agent review (Phase 3 ✅)
+npm run start -- grow "Building REST APIs"
+
+# 6. Ask the tutor a question
 npm run start -- ask "What is TypeScript?"
 
-# 6. Generate a curriculum for a topic (Phase 2 ✅)
-npm run start -- plant "Building REST APIs" -o ./my-curriculum.md
+# 7. Capture a learning insight
+npm run start -- remember "Key insight about REST" -c "REST uses HTTP methods..."
 
 # Check your progress
 npm run start -- status
@@ -58,7 +76,7 @@ npm run start -- status
 |-------|--------|-------------|
 | Phase 1 | ✅ Complete | Single agent architecture with Bark (Tutor) agent |
 | Phase 2 | ✅ Complete | Curriculum generation with Seedling agent |
-| Phase 3 | 🚧 Planned | Multi-agent orchestration with Canopy agent |
+| Phase 3 | ✅ Complete | Multi-agent orchestration with Canopy agent |
 | Phase 4 | 🚧 Planned | Progress tracking and adaptation |
 | Phase 5 | 🚧 Planned | Project scaffolding |
 | Phase 6 | 🚧 Planned | Extensibility and distribution |
@@ -69,11 +87,32 @@ npm run start -- status
 |---------|--------|-------------|
 | `groot ask <question>` | ✅ Working | Ask the Bark (Tutor) agent a question |
 | `groot status` | ✅ Working | Show progress dashboard and BEADS status |
-| `groot plant <topic>` | ✅ Working | Generate a new curriculum for a topic |
-| `groot grow` | 🚧 Phase 3 | Trigger multi-agent curriculum review |
+| `groot plant <topic>` | ✅ Working | Generate a new curriculum (single agent) |
+| `groot grow <topic>` | ✅ Working | Generate + multi-agent review curriculum |
+| `groot remember <title>` | ✅ Working | Capture learning insights as journal entries |
 | `groot wake` | 🚧 Phase 4 | Start a session, load context from BEADS |
 | `groot rest` | 🚧 Phase 4 | End a session, save state, generate handoff |
 | `groot seed` | 🚧 Phase 5 | Scaffold project files for current phase |
+
+### `groot grow` Options
+
+```bash
+groot grow "topic"              # Generate and review curriculum
+groot grow --file curriculum.json  # Review existing curriculum
+groot grow "topic" --beads      # Also create BEADS issues
+groot grow "topic" -v           # Verbose output
+groot grow "topic" --debug      # Show full agent interactions
+```
+
+### `groot remember` Options
+
+```bash
+groot remember "Title"                    # Interactive content input
+groot remember "Title" -c "content"       # Inline content
+groot remember --list                     # List all entries
+groot remember --view <slug>              # View specific entry
+groot remember "Title" --phase "Phase 1"  # Add context
+```
 
 ## 🛠️ Tech Stack
 
@@ -87,23 +126,27 @@ npm run start -- status
 ```
 groot/
 ├── src/
-│   ├── agents/          # Agent implementations
-│   │   ├── base.ts      # Base agent class
-│   │   ├── seedling.ts  # Curriculum Architect
-│   │   ├── bark.ts      # Tutor
-│   │   └── canopy.ts    # AI Architect
-│   ├── core/            # Core functionality
-│   │   ├── orchestrator.ts
-│   │   ├── beads.ts     # BEADS integration
+│   ├── agents/              # Agent implementations
+│   │   ├── base.ts          # Base agent class
+│   │   ├── seedling.ts      # Curriculum Architect
+│   │   ├── bark.ts          # Tutor (+ review_pedagogy)
+│   │   └── canopy.ts        # AI Architect (technical review)
+│   ├── core/                # Core functionality
+│   │   ├── orchestrator.ts  # Multi-agent coordination
+│   │   ├── journal.ts       # Learning journal
+│   │   ├── beads.ts         # BEADS integration
+│   │   ├── curriculum-output.ts
+│   │   ├── curriculum-beads.ts
 │   │   └── config.ts
-│   ├── cli/             # CLI commands
+│   ├── cli/                 # CLI commands
 │   │   └── index.ts
-│   └── types/           # TypeScript types
+│   └── types/               # TypeScript types
 │       └── index.ts
-├── docs/                # Documentation
-├── templates/           # Curriculum templates
-├── scaffolds/           # Project scaffolds
-└── .beads/              # BEADS state directory
+├── docs/                    # Documentation
+│   └── journal/             # Learning journal entries
+├── templates/               # Curriculum templates
+├── scaffolds/               # Project scaffolds
+└── .beads/                  # BEADS state directory
 ```
 
 ## 🌲 Growth Stages
