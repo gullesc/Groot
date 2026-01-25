@@ -4,7 +4,7 @@
 
 GROOT (Guided Resource for Organized Objective Training) is a multi-agent AI system for generating personalized learning curricula. This document defines conventions for AI agents working on this codebase.
 
-**Current Status:** Phase 1 (First Sprout) is complete! The Bark (Tutor) agent is fully functional with BEADS integration.
+**Current Status:** Phase 3 (Intertwining Roots) is complete! Multi-agent orchestration with Seedling, Bark, and Canopy agents working together.
 
 ## BEADS Integration
 
