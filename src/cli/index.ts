@@ -20,7 +20,7 @@ import chalk from 'chalk';
 import { loadConfig, validateConfig } from '../core/config';
 import { isBeadsAvailable, isBeadsInitialized, getReadyWork } from '../core/beads';
 import { createBarkAgent } from '../agents/bark';
-import { createOrchestrator } from '../core/orchestrator';
+import { createOrchestrator, DebugEvent } from '../core/orchestrator';
 import {
   saveJournalEntry,
   listJournalEntries,
@@ -279,6 +279,7 @@ program
   .option('--json', 'Output as JSON instead of markdown')
   .option('--beads', 'Create BEADS epics and tasks from curriculum')
   .option('-v, --verbose', 'Show detailed output')
+  .option('--debug', 'Show full agent interaction details')
   .action(async (topicParts: string[], options) => {
     const config = loadConfig();
     const { valid, errors } = validateConfig(config);
@@ -307,9 +308,55 @@ program
     // Track feedback for display
     const allFeedback: AgentFeedback[] = [];
 
+    // Helper to format debug output
+    const formatDebugEvent = (event: DebugEvent): void => {
+      const agentColors: Record<string, typeof chalk.green> = {
+        seedling: chalk.green,
+        canopy: chalk.blue,
+        bark: chalk.yellow,
+        orchestrator: chalk.magenta,
+      };
+      const color = agentColors[event.agent] || chalk.white;
+      const agentLabel = color(`[${event.agent.toUpperCase()}]`);
+
+      switch (event.type) {
+        case 'prompt':
+          console.log(chalk.cyan(`\n   ${agentLabel} PROMPT:`));
+          console.log(chalk.gray(`   ${event.content.substring(0, 200)}${event.content.length > 200 ? '...' : ''}`));
+          break;
+        case 'response':
+          console.log(chalk.cyan(`   ${agentLabel} RESPONSE:`));
+          console.log(chalk.gray(`   ${event.content.substring(0, 300)}${event.content.length > 300 ? '...' : ''}`));
+          if (event.data) {
+            console.log(chalk.gray(`   Data: ${JSON.stringify(event.data)}`));
+          }
+          break;
+        case 'tool_call':
+          console.log(chalk.cyan(`   ${agentLabel} TOOL CALL: ${event.content}`));
+          if (event.data && options.debug) {
+            const dataStr = JSON.stringify(event.data, null, 2);
+            const lines = dataStr.split('\n').slice(0, 10);
+            lines.forEach(line => console.log(chalk.gray(`     ${line}`)));
+            if (dataStr.split('\n').length > 10) {
+              console.log(chalk.gray('     ... (truncated)'));
+            }
+          }
+          break;
+        case 'tool_result':
+          console.log(chalk.cyan(`   ${agentLabel} TOOL RESULT: ${event.content}`));
+          break;
+        case 'handoff':
+          console.log(chalk.magenta(`\n   ${agentLabel} HANDOFF: ${event.content}`));
+          if (event.data) {
+            console.log(chalk.gray(`   ${JSON.stringify(event.data)}`));
+          }
+          break;
+      }
+    };
+
     // Create orchestrator with callbacks for progress display
     const orchestrator = createOrchestrator(
-      { apiKey: config.anthropicApiKey!, verbose: options.verbose },
+      { apiKey: config.anthropicApiKey!, verbose: options.verbose, debug: options.debug },
       {
         onPhaseStart: (phase: string) => {
           const phaseNames: Record<string, string> = {
@@ -327,25 +374,32 @@ program
         },
         onFeedback: (feedback: AgentFeedback) => {
           allFeedback.push(feedback);
-          const icon =
-            feedback.feedbackType === 'blocker'
-              ? '🛑'
-              : feedback.feedbackType === 'concern'
-              ? '⚠️ '
-              : feedback.feedbackType === 'suggestion'
-              ? '💡'
-              : '✅';
-          const severityColor =
-            feedback.severity === 'critical'
-              ? chalk.red
-              : feedback.severity === 'high'
-              ? chalk.yellow
-              : chalk.gray;
-          console.log(severityColor(`   ${icon} ${feedback.message}`));
+          if (!options.debug) {
+            const icon =
+              feedback.feedbackType === 'blocker'
+                ? '🛑'
+                : feedback.feedbackType === 'concern'
+                ? '⚠️ '
+                : feedback.feedbackType === 'suggestion'
+                ? '💡'
+                : '✅';
+            const severityColor =
+              feedback.severity === 'critical'
+                ? chalk.red
+                : feedback.severity === 'high'
+                ? chalk.yellow
+                : chalk.gray;
+            console.log(severityColor(`   ${icon} ${feedback.message}`));
+          }
         },
         onLog: (message: string) => {
           if (options.verbose) {
             console.log(chalk.gray(`   ${message}`));
+          }
+        },
+        onDebug: (event: DebugEvent) => {
+          if (options.debug) {
+            formatDebugEvent(event);
           }
         },
       }

@@ -24,6 +24,7 @@ export interface OrchestratorConfig {
   apiKey: string;
   model?: string;
   verbose?: boolean;
+  debug?: boolean;
 }
 
 export interface OrchestratorCallbacks {
@@ -31,6 +32,14 @@ export interface OrchestratorCallbacks {
   onPhaseComplete?: (phase: string, success: boolean) => void;
   onFeedback?: (feedback: AgentFeedback) => void;
   onLog?: (message: string) => void;
+  onDebug?: (event: DebugEvent) => void;
+}
+
+export interface DebugEvent {
+  type: 'prompt' | 'response' | 'tool_call' | 'tool_result' | 'handoff';
+  agent: string;
+  content: string;
+  data?: unknown;
 }
 
 export class Orchestrator {
@@ -38,6 +47,7 @@ export class Orchestrator {
   private canopy: CanopyAgent;
   private bark: BarkAgent;
   private verbose: boolean;
+  private debug: boolean;
   private callbacks: OrchestratorCallbacks;
 
   constructor(config: OrchestratorConfig, callbacks: OrchestratorCallbacks = {}) {
@@ -45,6 +55,7 @@ export class Orchestrator {
     this.canopy = createCanopyAgent(config.apiKey, config.model);
     this.bark = createBarkAgent(config.apiKey, config.model);
     this.verbose = config.verbose || false;
+    this.debug = config.debug || false;
     this.callbacks = callbacks;
   }
 
@@ -53,6 +64,12 @@ export class Orchestrator {
       console.log(message);
     }
     this.callbacks.onLog?.(message);
+  }
+
+  private emitDebug(event: DebugEvent): void {
+    if (this.debug) {
+      this.callbacks.onDebug?.(event);
+    }
   }
 
   /**
@@ -124,10 +141,38 @@ Please create a curriculum with:
 
 Use the generate_curriculum_structure tool to output the curriculum in the proper format.`;
 
+    this.emitDebug({
+      type: 'prompt',
+      agent: 'seedling',
+      content: prompt,
+    });
+
     const response = await this.seedling.chat(prompt);
+
+    this.emitDebug({
+      type: 'response',
+      agent: 'seedling',
+      content: response.content || '(no text response)',
+    });
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
       throw new Error('Seedling did not generate a curriculum structure');
+    }
+
+    for (const toolCall of response.toolCalls) {
+      this.emitDebug({
+        type: 'tool_call',
+        agent: 'seedling',
+        content: toolCall.toolName,
+        data: toolCall.input,
+      });
+
+      this.emitDebug({
+        type: 'tool_result',
+        agent: 'seedling',
+        content: toolCall.toolName,
+        data: toolCall.output,
+      });
     }
 
     const curriculumTool = response.toolCalls.find(
@@ -176,11 +221,46 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
   ): Promise<{ feedback: AgentFeedback[]; score: number }> {
     this.log('Canopy is reviewing technical feasibility...');
 
+    this.emitDebug({
+      type: 'handoff',
+      agent: 'canopy',
+      content: `Receiving curriculum from Seedling`,
+      data: {
+        title: curriculum.title,
+        phases: curriculum.phases.length,
+        totalHours: curriculum.metadata.estimatedHours,
+      },
+    });
+
+    // Get the last prompt from Canopy's review
+    const reviewPrompt = `Reviewing curriculum: "${curriculum.title}" (${curriculum.phases.length} phases, ${curriculum.metadata.estimatedHours}h)`;
+    this.emitDebug({
+      type: 'prompt',
+      agent: 'canopy',
+      content: reviewPrompt,
+    });
+
     const result = await this.canopy.reviewCurriculum(curriculum);
+
+    this.emitDebug({
+      type: 'response',
+      agent: 'canopy',
+      content: result.summary || '(no summary)',
+      data: {
+        technicalScore: result.technicalScore,
+        feedbackCount: result.feedback.length,
+      },
+    });
 
     // Emit feedback through callbacks
     for (const feedback of result.feedback) {
       this.callbacks.onFeedback?.(feedback);
+      this.emitDebug({
+        type: 'tool_result',
+        agent: 'canopy',
+        content: `Feedback: ${feedback.feedbackType}`,
+        data: feedback,
+      });
     }
 
     context.agentContributions.canopy.push(
@@ -203,11 +283,45 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
   ): Promise<{ feedback: AgentFeedback[]; score: number }> {
     this.log('Bark is reviewing pedagogical soundness...');
 
+    this.emitDebug({
+      type: 'handoff',
+      agent: 'bark',
+      content: `Receiving curriculum from Orchestrator (after Canopy review)`,
+      data: {
+        title: curriculum.title,
+        phases: curriculum.phases.length,
+        canopyContributions: context.agentContributions.canopy.length,
+      },
+    });
+
+    const reviewPrompt = `Reviewing curriculum: "${curriculum.title}" for pedagogical soundness`;
+    this.emitDebug({
+      type: 'prompt',
+      agent: 'bark',
+      content: reviewPrompt,
+    });
+
     const result = await this.bark.reviewCurriculum(curriculum);
+
+    this.emitDebug({
+      type: 'response',
+      agent: 'bark',
+      content: result.summary || '(no summary)',
+      data: {
+        pedagogyScore: result.pedagogyScore,
+        feedbackCount: result.feedback.length,
+      },
+    });
 
     // Emit feedback through callbacks
     for (const feedback of result.feedback) {
       this.callbacks.onFeedback?.(feedback);
+      this.emitDebug({
+        type: 'tool_result',
+        agent: 'bark',
+        content: `Feedback: ${feedback.feedbackType}`,
+        data: feedback,
+      });
     }
 
     context.agentContributions.bark.push(
@@ -230,6 +344,17 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
     context: SharedContext
   ): Promise<OrchestrationResult> {
     this.log('Merging feedback from all agents...');
+
+    this.emitDebug({
+      type: 'handoff',
+      agent: 'orchestrator',
+      content: `Merging feedback from all agents`,
+      data: {
+        totalFeedback: allFeedback.length,
+        fromCanopy: allFeedback.filter(f => f.agentName === 'canopy').length,
+        fromBark: allFeedback.filter(f => f.agentName === 'bark').length,
+      },
+    });
 
     // Categorize feedback by target
     const byPhase = new Map<number, AgentFeedback[]>();
