@@ -2,14 +2,13 @@
  * GROOT Learning Journal
  *
  * Captures learning explanations and insights during curriculum development.
- * Stores entries as markdown files for easy reading and version control.
+ * Stores entries as markdown files in .groot/journal/ for easy reading and version control.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { JournalEntry, JournalContext } from '../types';
-
-const JOURNAL_DIR = 'docs/journal';
+import { getJournalDir } from './paths';
 
 /**
  * Generate a URL-friendly slug from a title
@@ -34,10 +33,10 @@ function getDateString(): string {
 }
 
 /**
- * Ensure the journal directory exists
+ * Ensure the journal directory exists (sync version)
  */
-function ensureJournalDir(basePath: string = process.cwd()): string {
-  const journalPath = path.join(basePath, JOURNAL_DIR);
+function ensureJournalDirSync(): string {
+  const journalPath = getJournalDir();
 
   if (!fs.existsSync(journalPath)) {
     fs.mkdirSync(journalPath, { recursive: true });
@@ -185,9 +184,9 @@ export function saveJournalEntry(
   title: string,
   content: string,
   context?: JournalContext,
-  options: { basePath?: string; takeaways?: string[]; relatedTopics?: string[] } = {}
+  options: { takeaways?: string[]; relatedTopics?: string[] } = {}
 ): JournalEntry {
-  const journalPath = ensureJournalDir(options.basePath);
+  const journalPath = ensureJournalDirSync();
   const dateString = getDateString();
   const slug = generateSlug(title);
   const filename = `${dateString}-${slug}.md`;
@@ -212,10 +211,8 @@ export function saveJournalEntry(
 /**
  * List all journal entries
  */
-export function listJournalEntries(
-  basePath: string = process.cwd()
-): Array<{ slug: string; title: string; date: string; filePath: string }> {
-  const journalPath = path.join(basePath, JOURNAL_DIR);
+export function listJournalEntries(): Array<{ slug: string; title: string; date: string; filePath: string }> {
+  const journalPath = getJournalDir();
 
   if (!fs.existsSync(journalPath)) {
     return [];
@@ -249,11 +246,8 @@ export function listJournalEntries(
 /**
  * Get a specific journal entry by slug
  */
-export function getJournalEntry(
-  slug: string,
-  basePath: string = process.cwd()
-): JournalEntry | null {
-  const journalPath = path.join(basePath, JOURNAL_DIR);
+export function getJournalEntry(slug: string): JournalEntry | null {
+  const journalPath = getJournalDir();
 
   if (!fs.existsSync(journalPath)) {
     return null;
@@ -290,6 +284,6 @@ export function getJournalEntry(
 /**
  * Get the path to the journal directory
  */
-export function getJournalPath(basePath: string = process.cwd()): string {
-  return path.join(basePath, JOURNAL_DIR);
+export function getJournalPath(): string {
+  return getJournalDir();
 }

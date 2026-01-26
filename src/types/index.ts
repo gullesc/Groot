@@ -158,15 +158,23 @@ export interface BeadsIssue {
 // Session Types
 // ============================================================================
 
+export type SessionStatus = 'active' | 'completed' | 'abandoned';
+
 export interface Session {
   id: string;
   curriculumId: string;
+  curriculumPath: string;      // Path to curriculum file
+  curriculumTitle: string;     // For display
+  phaseNumber: number;         // For display
+  phaseTitle: string;          // For display
+  phaseId: string;
   startedAt: Date;
   endedAt?: Date;
-  phaseId: string;
+  status: SessionStatus;
   notes: string[];
   questionsAsked: string[];
   progress: SessionProgress;
+  handoff?: SessionHandoff;    // Populated on rest
 }
 
 export interface SessionProgress {

@@ -42,33 +42,50 @@ Agents communicate through a central Orchestrator (not directly with each other)
 ## 🚀 Quick Start
 
 ```bash
-# 1. Install dependencies
-npm install
+# 1. Install GROOT globally (or use npx)
+npm install -g groot
 
-# 2. Install BEADS (if not already installed)
-curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
-# Add BEADS to your PATH
-export PATH="$PATH:$HOME/.local/bin"
+# 2. Create your learning project
+mkdir my-project
+cd my-project
 
-# 3. Set up your environment
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# 3. Initialize GROOT
+groot init
 
-# 4. Build the project
-npm run build
+# 4. Generate a curriculum
+groot plant "Building REST APIs with Node.js"
 
-# 5. Generate a curriculum with multi-agent review (Phase 3 ✅)
-npm run start -- grow "Building REST APIs"
+# 5. Start a learning session
+groot wake
 
-# 6. Ask the tutor a question
-npm run start -- ask "What is TypeScript?"
+# 6. Work on your project, ask questions
+groot ask "What is middleware?"
 
-# 7. Capture a learning insight
-npm run start -- remember "Key insight about REST" -c "REST uses HTTP methods..."
+# 7. End your session
+groot rest
 
-# Check your progress
-npm run start -- status
+# 8. When done learning, ship your project!
+rm -rf .groot/   # Remove GROOT, keep your code
 ```
+
+## 📁 The `.groot/` Directory
+
+All GROOT data lives in a `.groot/` folder in your project — completely separate from your code:
+
+```
+my-project/
+├── .groot/                    # GROOT data (removable)
+│   ├── curriculum.json        # Your learning plan
+│   ├── sessions/              # Session history
+│   └── journal/               # Learning notes
+├── src/                       # YOUR code
+├── package.json               # YOUR config
+└── README.md                  # YOUR docs
+```
+
+**To remove GROOT from any project:** `rm -rf .groot/`
+
+Your code is always 100% yours. GROOT is just a companion for learning.
 
 ## 🌱 Current Implementation Status
 
@@ -77,41 +94,47 @@ npm run start -- status
 | Phase 1 | ✅ Complete | Single agent architecture with Bark (Tutor) agent |
 | Phase 2 | ✅ Complete | Curriculum generation with Seedling agent |
 | Phase 3 | ✅ Complete | Multi-agent orchestration with Canopy agent |
-| Phase 4 | 🚧 Planned | Progress tracking and adaptation |
+| Phase 4 | ✅ Complete | Session management and progress tracking |
 | Phase 5 | 🚧 Planned | Project scaffolding |
 | Phase 6 | 🚧 Planned | Extensibility and distribution |
 
 ## 📋 CLI Commands
 
-| Command | Status | Description |
-|---------|--------|-------------|
-| `groot ask <question>` | ✅ Working | Ask the Bark (Tutor) agent a question |
-| `groot status` | ✅ Working | Show progress dashboard and BEADS status |
-| `groot plant <topic>` | ✅ Working | Generate a new curriculum (single agent) |
-| `groot grow <topic>` | ✅ Working | Generate + multi-agent review curriculum |
-| `groot remember <title>` | ✅ Working | Capture learning insights as journal entries |
-| `groot wake` | 🚧 Phase 4 | Start a session, load context from BEADS |
-| `groot rest` | 🚧 Phase 4 | End a session, save state, generate handoff |
-| `groot seed` | 🚧 Phase 5 | Scaffold project files for current phase |
+| Command | Description |
+|---------|-------------|
+| `groot init` | Initialize GROOT in current directory |
+| `groot plant <topic>` | Generate a curriculum |
+| `groot grow <topic>` | Generate + multi-agent review curriculum |
+| `groot wake` | Start a learning session |
+| `groot rest` | End session with handoff summary |
+| `groot status` | Show curriculum and session progress |
+| `groot ask <question>` | Ask the tutor a question |
+| `groot remember <title>` | Capture learning notes |
+| `groot seed` | 🚧 Scaffold project files (Phase 5) |
 
-### `groot grow` Options
-
-```bash
-groot grow "topic"              # Generate and review curriculum
-groot grow --file curriculum.json  # Review existing curriculum
-groot grow "topic" --beads      # Also create BEADS issues
-groot grow "topic" -v           # Verbose output
-groot grow "topic" --debug      # Show full agent interactions
-```
-
-### `groot remember` Options
+### Command Examples
 
 ```bash
-groot remember "Title"                    # Interactive content input
-groot remember "Title" -c "content"       # Inline content
-groot remember --list                     # List all entries
-groot remember --view <slug>              # View specific entry
-groot remember "Title" --phase "Phase 1"  # Add context
+# Initialize and create curriculum
+groot init
+groot plant "TypeScript fundamentals"
+groot plant "React patterns" --beads     # Also create BEADS tasks
+
+# Multi-agent curriculum generation
+groot grow "Building REST APIs"
+groot grow "topic" --debug               # Show agent interactions
+
+# Session management
+groot wake                               # Start session
+groot wake --phase 2                     # Start specific phase
+groot rest                               # End with handoff
+groot rest -q                            # Quick end (skip prompts)
+groot status                             # Check progress
+
+# Learning
+groot ask "What is dependency injection?"
+groot remember "Key insight" -c "content"
+groot remember --list                    # List journal entries
 ```
 
 ## 🛠️ Tech Stack
@@ -120,6 +143,7 @@ groot remember "Title" --phase "Phase 1"  # Add context
 - **AI**: Claude API (Anthropic)
 - **State Management**: [BEADS](https://github.com/steveyegge/beads) - Git-backed issue tracker as agent memory
 - **CLI Framework**: Commander.js
+- **Interactive Prompts**: Inquirer.js
 
 ## 📁 Project Structure
 
@@ -129,9 +153,11 @@ groot/
 │   ├── agents/              # Agent implementations
 │   │   ├── base.ts          # Base agent class
 │   │   ├── seedling.ts      # Curriculum Architect
-│   │   ├── bark.ts          # Tutor (+ review_pedagogy)
-│   │   └── canopy.ts        # AI Architect (technical review)
+│   │   ├── bark.ts          # Tutor
+│   │   └── canopy.ts        # AI Architect
 │   ├── core/                # Core functionality
+│   │   ├── paths.ts         # .groot/ path management
+│   │   ├── session.ts       # Session lifecycle
 │   │   ├── orchestrator.ts  # Multi-agent coordination
 │   │   ├── journal.ts       # Learning journal
 │   │   ├── beads.ts         # BEADS integration
@@ -143,9 +169,6 @@ groot/
 │   └── types/               # TypeScript types
 │       └── index.ts
 ├── docs/                    # Documentation
-│   └── journal/             # Learning journal entries
-├── templates/               # Curriculum templates
-├── scaffolds/               # Project scaffolds
 └── .beads/                  # BEADS state directory
 ```
 
@@ -166,6 +189,16 @@ As you progress through a curriculum, you'll move through growth stages:
 ## 🔧 Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Set up environment
+cp .env.example .env
+# Add your ANTHROPIC_API_KEY
+
+# Build
+npm run build
+
 # Run in development mode
 npm run dev
 
@@ -179,8 +212,8 @@ npm run lint
 ## 📚 Prerequisites
 
 - Node.js 18+
-- [BEADS](https://github.com/steveyegge/beads) installed (`bd` command available)
 - Anthropic API key (set as `ANTHROPIC_API_KEY` environment variable)
+- [BEADS](https://github.com/steveyegge/beads) (optional, for task tracking)
 
 ## 🤝 Contributing
 

@@ -18,7 +18,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadConfig, validateConfig } from '../core/config';
-import { isBeadsAvailable, isBeadsInitialized, getReadyWork } from '../core/beads';
+import { isBeadsAvailable, isBeadsInitialized, getReadyWork, syncBeads, updateBeadsSessionProgress } from '../core/beads';
 import { createBarkAgent } from '../agents/bark';
 import { createOrchestrator, DebugEvent } from '../core/orchestrator';
 import {
@@ -27,7 +27,34 @@ import {
   getJournalEntry,
   getJournalPath,
 } from '../core/journal';
-import { Curriculum, AgentFeedback } from '../types';
+import {
+  startSessionFromPath,
+  getCurrentSession,
+  setCurrentSession,
+  findActiveSession,
+  listSessions,
+  endSession,
+  markObjectiveComplete,
+  markDeliverableComplete,
+  addSessionNote,
+  generateHandoff,
+  formatDuration,
+  getSessionSummary,
+} from '../core/session';
+import {
+  loadCurriculumJSON,
+  updateCurriculumProgress,
+  getCurrentCurriculum,
+  saveCurriculum,
+} from '../core/curriculum-output';
+import {
+  isGrootInitialized,
+  hasCurriculum,
+  getCurriculumPath,
+  initGrootDir,
+} from '../core/paths';
+import { Curriculum, AgentFeedback, Session } from '../types';
+import { input, select, checkbox, confirm } from '@inquirer/prompts';
 
 const program = new Command();
 
@@ -41,6 +68,39 @@ program
   .name('groot')
   .description('AI-powered learning curriculum generator')
   .version('0.1.0');
+
+// ============================================================================
+// groot init - Initialize GROOT in current directory
+// ============================================================================
+program
+  .command('init')
+  .description('Initialize GROOT in the current directory')
+  .action(async () => {
+    console.log(LOGO);
+
+    if (isGrootInitialized()) {
+      console.log(chalk.yellow('GROOT is already initialized in this directory.'));
+      if (hasCurriculum()) {
+        const curriculum = await getCurrentCurriculum();
+        if (curriculum) {
+          console.log(chalk.cyan(`   Curriculum: ${curriculum.title}`));
+          console.log(chalk.cyan(`   Phases: ${curriculum.phases.length}`));
+        }
+      } else {
+        console.log(chalk.gray('   No curriculum yet. Create one with: groot plant "your topic"'));
+      }
+      return;
+    }
+
+    await initGrootDir();
+    console.log(chalk.green('Initialized GROOT in current directory.'));
+    console.log(chalk.gray('\n   Created: .groot/'));
+    console.log(chalk.gray('            .groot/sessions/'));
+    console.log(chalk.gray('            .groot/journal/'));
+    console.log(chalk.cyan('\nNext steps:'));
+    console.log(chalk.gray('   groot plant "your topic"  - Generate a curriculum'));
+    console.log(chalk.gray('   groot wake                - Start a learning session'));
+  });
 
 // ============================================================================
 // groot ask - Ask the tutor a question
@@ -89,9 +149,78 @@ program
 program
   .command('status')
   .description('Show your current learning progress')
-  .action(() => {
+  .action(async () => {
     console.log(LOGO);
-    
+
+    // Check if GROOT is initialized
+    if (!isGrootInitialized()) {
+      console.log(chalk.yellow('GROOT is not initialized in this directory.'));
+      console.log(chalk.gray('Run: groot init'));
+      console.log();
+      return;
+    }
+
+    // Show curriculum info
+    if (hasCurriculum()) {
+      const curriculum = await getCurrentCurriculum();
+      if (curriculum) {
+        console.log(chalk.green('📚 Curriculum: ' + curriculum.title));
+        console.log(chalk.cyan('─'.repeat(50)));
+        curriculum.phases.forEach(p => {
+          const statusIcon =
+            p.status === 'completed' ? '✓' :
+            p.status === 'in_progress' ? '→' :
+            p.status === 'available' ? '○' :
+            '🔒';
+          const statusColor =
+            p.status === 'completed' ? chalk.green :
+            p.status === 'in_progress' ? chalk.yellow :
+            p.status === 'available' ? chalk.cyan :
+            chalk.gray;
+          console.log(statusColor(`   ${statusIcon} Phase ${p.number}: ${p.title}`));
+        });
+        console.log(chalk.cyan('─'.repeat(50)));
+        console.log();
+      }
+    } else {
+      console.log(chalk.gray('No curriculum yet.'));
+      console.log(chalk.gray('Create one with: groot plant "your topic"\n'));
+    }
+
+    // Check for active session
+    let session = getCurrentSession();
+    if (!session) {
+      session = await findActiveSession();
+    }
+
+    if (session) {
+      const summary = getSessionSummary(session);
+      console.log(chalk.green('📖 Active Session'));
+      console.log(chalk.white(`   Phase: ${session.phaseNumber} - ${session.phaseTitle}`));
+      console.log(chalk.white(`   Time: ${summary.duration}`));
+      console.log(chalk.white(`   Progress: ${summary.objectivesCompleted} objectives, ${summary.deliverablesCompleted} deliverables`));
+      if (summary.notes > 0) {
+        console.log(chalk.gray(`   Notes: ${summary.notes}`));
+      }
+      console.log();
+    } else if (hasCurriculum()) {
+      console.log(chalk.gray('No active session. Start one with: groot wake\n'));
+    }
+
+    // Show recent sessions
+    const recentSessions = await listSessions();
+    const completedSessions = recentSessions.filter(s => s.status === 'completed').slice(0, 3);
+
+    if (completedSessions.length > 0) {
+      console.log(chalk.cyan('📋 Recent Sessions'));
+      completedSessions.forEach(s => {
+        const date = new Date(s.startedAt).toLocaleDateString();
+        const duration = formatDuration(s.progress.timeSpentMinutes);
+        console.log(chalk.gray(`   ${date} - ${s.curriculumTitle} Phase ${s.phaseNumber} (${duration})`));
+      });
+      console.log();
+    }
+
     // Check BEADS status
     if (!isBeadsAvailable()) {
       console.log(chalk.yellow('⚠️  BEADS is not installed.'));
@@ -103,7 +232,7 @@ program
       console.log();
     } else {
       console.log(chalk.green('✅ BEADS is ready'));
-      
+
       const readyWork = getReadyWork();
       if (readyWork.length > 0) {
         console.log(chalk.cyan(`\n📋 Ready to work on (${readyWork.length} items):`));
@@ -118,11 +247,11 @@ program
         console.log(chalk.gray('\n   No ready work items. Time to plant some seeds! 🌱'));
       }
     }
-    
+
     // Show growth stage (placeholder)
     console.log(chalk.cyan('\n🌱 Growth Stage: Seed'));
     console.log(chalk.gray('   You are just beginning your journey.\n'));
-    
+
     // Show available commands
     console.log(chalk.white('Available commands:'));
     console.log(chalk.gray('   groot plant <topic>  - Start a new curriculum'));
@@ -137,8 +266,7 @@ program
 program
   .command('plant <topic...>')
   .description('Plant a seed - generate a new learning curriculum')
-  .option('-o, --output <file>', 'Output file (markdown or JSON)', './curriculum.md')
-  .option('--json', 'Output as JSON instead of markdown')
+  .option('--markdown <file>', 'Also output as markdown file')
   .option('--beads', 'Create BEADS epics and tasks from curriculum')
   .option('-v, --verbose', 'Show detailed output')
   .action(async (topicParts: string[], options) => {
@@ -153,12 +281,27 @@ program
       process.exit(1);
     }
 
+    // Check if curriculum already exists
+    if (hasCurriculum()) {
+      const overwrite = await confirm({
+        message: 'A curriculum already exists in this project. Overwrite it?',
+        default: false,
+      });
+      if (!overwrite) {
+        console.log(chalk.gray('Cancelled.'));
+        return;
+      }
+    }
+
     console.log(LOGO);
     console.log(chalk.green(`🌿 Seedling is designing your curriculum...\n`));
     console.log(chalk.gray(`Topic: ${topic}`));
     console.log();
 
     try {
+      // Initialize .groot directory
+      await initGrootDir();
+
       const { createSeedlingAgent } = await import('../agents/seedling');
       const seedling = createSeedlingAgent(config.anthropicApiKey!);
 
@@ -196,20 +339,20 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
             }
           }
 
-          // Output curriculum
-          if (options.json) {
-            const { writeCurriculumJSON } = await import('../core/curriculum-output');
-            await writeCurriculumJSON(curriculum, options.output);
-            console.log(chalk.green(`\n✅ Curriculum saved to ${options.output}`));
-          } else {
+          // Save curriculum to .groot/curriculum.json
+          const filePath = await saveCurriculum(curriculum);
+          console.log(chalk.green(`\n✅ Curriculum saved to ${filePath}`));
+
+          // Also output markdown if requested
+          if (options.markdown) {
             const { writeCurriculumMarkdown } = await import('../core/curriculum-output');
-            await writeCurriculumMarkdown(curriculum, options.output);
-            console.log(chalk.green(`\n✅ Curriculum saved to ${options.output}`));
+            await writeCurriculumMarkdown(curriculum, options.markdown);
+            console.log(chalk.green(`📄 Markdown saved to ${options.markdown}`));
           }
 
           console.log(chalk.cyan('\nNext steps:'));
           console.log(chalk.gray('  1. Review the curriculum'));
-          console.log(chalk.gray('  2. Use "groot status" to see your progress'));
+          console.log(chalk.gray('  2. Use "groot wake" to start a learning session'));
           console.log(chalk.gray('  3. Use "groot ask" to learn about concepts'));
           if (options.beads) {
             console.log(chalk.gray('  4. Run "bd ready" to see ready work in BEADS'));
@@ -233,39 +376,376 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
   });
 
 // ============================================================================
-// groot wake - Start a session (placeholder)
+// groot wake - Start a learning session
 // ============================================================================
 program
   .command('wake')
   .description('Wake up - start a new learning session')
-  .action(() => {
+  .option('-p, --phase <number>', 'Phase number to start')
+  .action(async (options) => {
     console.log(LOGO);
-    console.log(chalk.green(`☀️  Good morning! GROOT is waking up...`));
-    console.log(chalk.gray(`   Session management will be implemented in Phase 4.`));
-    console.log();
-    
-    if (isBeadsAvailable() && isBeadsInitialized()) {
-      const readyWork = getReadyWork();
-      if (readyWork.length > 0) {
-        console.log(chalk.cyan(`Ready to grow:`));
-        console.log(chalk.white(`   Next task: [${readyWork[0]?.id}] ${readyWork[0]?.title}`));
+    console.log(chalk.green(`\n🌅 GROOT - Wake Up and Learn!\n`));
+
+    try {
+      // Check if GROOT is initialized
+      if (!isGrootInitialized() || !hasCurriculum()) {
+        console.log(chalk.yellow('No curriculum found in this project.'));
+        console.log(chalk.gray('Generate one with: groot plant "your topic"'));
+        return;
       }
+
+      // Check for existing active session
+      const existingSession = await findActiveSession();
+      if (existingSession) {
+        const summary = getSessionSummary(existingSession);
+        console.log(chalk.yellow('⚠️  Active session found:'));
+        console.log(chalk.white(`   Curriculum: ${existingSession.curriculumTitle}`));
+        console.log(chalk.white(`   Phase: ${existingSession.phaseNumber} - ${existingSession.phaseTitle}`));
+        console.log(chalk.white(`   Duration: ${summary.duration}`));
+        console.log();
+
+        const resumeChoice = await select({
+          message: 'What would you like to do?',
+          choices: [
+            { name: 'Resume existing session', value: 'resume' },
+            { name: 'End current session and start new', value: 'end' },
+            { name: 'Cancel', value: 'cancel' },
+          ],
+        });
+
+        if (resumeChoice === 'cancel') {
+          return;
+        }
+
+        if (resumeChoice === 'resume') {
+          setCurrentSession(existingSession);
+          await displaySessionInfo(existingSession);
+          return;
+        }
+
+        // End existing session before starting new
+        if (resumeChoice === 'end') {
+          console.log(chalk.gray('\nEnding previous session...'));
+          const curriculum = await loadCurriculumJSON(existingSession.curriculumPath);
+          const phase = curriculum.phases.find(p => p.number === existingSession.phaseNumber);
+          if (phase) {
+            const handoff = generateHandoff(existingSession, phase);
+            await endSession(existingSession, handoff);
+            console.log(chalk.green('Previous session ended.\n'));
+          }
+        }
+      }
+
+      // Load curriculum from .groot/curriculum.json
+      const curriculumPath = getCurriculumPath();
+      const curriculum = await loadCurriculumJSON(curriculumPath);
+      let selectedPhase: number;
+
+      // Show curriculum info
+      console.log(chalk.cyan(`📚 Curriculum: ${curriculum.title}\n`));
+      curriculum.phases.forEach(p => {
+        const statusColor =
+          p.status === 'completed' ? chalk.green :
+          p.status === 'in_progress' ? chalk.yellow :
+          p.status === 'available' ? chalk.cyan :
+          chalk.gray;
+        const statusIcon =
+          p.status === 'completed' ? '✓' :
+          p.status === 'in_progress' ? '→' :
+          p.status === 'available' ? '○' :
+          '🔒';
+        console.log(statusColor(`   ${statusIcon} Phase ${p.number}: ${p.title}`));
+      });
+      console.log();
+
+      // Select phase
+      if (options.phase) {
+        selectedPhase = parseInt(options.phase, 10);
+        const phase = curriculum.phases.find(p => p.number === selectedPhase);
+        if (!phase) {
+          console.error(chalk.red(`Phase ${selectedPhase} not found in curriculum`));
+          return;
+        }
+        if (phase.status === 'locked') {
+          console.error(chalk.red(`Phase ${selectedPhase} is locked. Complete previous phases first.`));
+          return;
+        }
+      } else {
+        // Interactive phase selection
+        console.log();
+        const phaseChoices = curriculum.phases.map(p => {
+          const statusIcon =
+            p.status === 'completed' ? '✓' :
+            p.status === 'in_progress' ? '→' :
+            p.status === 'available' ? '○' :
+            '🔒';
+          return {
+            name: `${statusIcon} Phase ${p.number}: ${p.title} (${p.status})`,
+            value: p.number,
+            disabled: p.status === 'locked' ? 'Complete previous phases first' : false,
+          };
+        });
+
+        selectedPhase = await select({
+          message: 'Select a phase:',
+          choices: phaseChoices,
+        });
+      }
+
+      // Start the session
+      console.log(chalk.cyan('\n🌅 Starting learning session...\n'));
+
+      const session = await startSessionFromPath(curriculumPath, curriculum, selectedPhase);
+      await displaySessionInfo(session);
+
+    } catch (error) {
+      console.error(chalk.red('Error starting session:'), error);
+      process.exit(1);
     }
   });
 
+/**
+ * Display session info with objectives and deliverables
+ */
+async function displaySessionInfo(session: Session): Promise<void> {
+  const curriculum = await loadCurriculumJSON(session.curriculumPath);
+  const phase = curriculum.phases.find(p => p.number === session.phaseNumber);
+
+  if (!phase) {
+    console.error(chalk.red('Phase not found in curriculum'));
+    return;
+  }
+
+  console.log(chalk.cyan('─'.repeat(60)));
+  console.log(chalk.white(`   Curriculum: ${session.curriculumTitle}`));
+  console.log(chalk.white(`   Phase: ${session.phaseNumber} - ${session.phaseTitle}`));
+  console.log(chalk.white(`   Started: ${new Date(session.startedAt).toLocaleTimeString()}`));
+  console.log(chalk.cyan('─'.repeat(60)));
+  console.log();
+
+  // Show objectives
+  console.log(chalk.cyan('   📋 Objectives:'));
+  phase.objectives.forEach(obj => {
+    const completed = session.progress.objectivesCompleted.includes(obj.id) || obj.completed;
+    const icon = completed ? chalk.green('✓') : chalk.gray('○');
+    const text = completed ? chalk.green(obj.description) : chalk.white(obj.description);
+    console.log(`   ${icon} ${text}`);
+  });
+  console.log();
+
+  // Show deliverables
+  console.log(chalk.cyan('   📦 Deliverables:'));
+  phase.deliverables.forEach(del => {
+    const completed = session.progress.deliverablesCompleted.includes(del.id) || del.completed;
+    const icon = completed ? chalk.green('✓') : chalk.gray('○');
+    const text = completed ? chalk.green(del.title) : chalk.white(del.title);
+    console.log(`   ${icon} ${text}`);
+  });
+  console.log();
+
+  // Show BEADS ready work if available
+  if (isBeadsAvailable() && isBeadsInitialized()) {
+    const readyWork = getReadyWork();
+    if (readyWork.length > 0) {
+      console.log(chalk.cyan('   🔧 Ready Work (BEADS):'));
+      readyWork.slice(0, 3).forEach(issue => {
+        console.log(chalk.white(`   [${issue.id}] ${issue.title}`));
+      });
+      if (readyWork.length > 3) {
+        console.log(chalk.gray(`   ... and ${readyWork.length - 3} more`));
+      }
+      console.log();
+    }
+  }
+
+  console.log(chalk.gray(`   💡 Tip: Use 'groot ask' to ask questions`));
+  console.log(chalk.gray(`           Use 'groot rest' when done`));
+}
+
 // ============================================================================
-// groot rest - End a session (placeholder)
+// groot rest - End a learning session
 // ============================================================================
 program
   .command('rest')
   .description('Rest - end your learning session and save progress')
-  .action(() => {
+  .option('-n, --notes <notes>', 'Add session notes')
+  .option('-q, --quick', 'Quick rest - skip interactive prompts')
+  .action(async (options) => {
     console.log(LOGO);
-    console.log(chalk.blue(`🌙 Time to rest...`));
-    console.log(chalk.gray(`   Session management will be implemented in Phase 4.`));
-    console.log();
-    console.log(chalk.cyan(`Remember to sync your progress:`));
-    console.log(chalk.white(`   bd sync`));
+    console.log(chalk.blue(`\n🌙 GROOT - Time to Rest\n`));
+
+    try {
+      // Find active session
+      let session = getCurrentSession();
+      if (!session) {
+        session = await findActiveSession();
+      }
+
+      if (!session) {
+        console.log(chalk.yellow('No active session found.'));
+        console.log(chalk.gray('Start one with: groot wake'));
+        return;
+      }
+
+      // Load curriculum and phase
+      const curriculum = await loadCurriculumJSON(session.curriculumPath);
+      const phase = curriculum.phases.find(p => p.number === session!.phaseNumber);
+
+      if (!phase) {
+        console.error(chalk.red('Phase not found in curriculum'));
+        return;
+      }
+
+      // Calculate duration
+      const startTime = new Date(session.startedAt).getTime();
+      const now = Date.now();
+      const durationMinutes = Math.round((now - startTime) / (1000 * 60));
+      const durationStr = formatDuration(durationMinutes);
+
+      console.log(chalk.cyan(`Session Duration: ${durationStr}\n`));
+
+      if (!options.quick) {
+        // Interactive: Mark completed objectives
+        const objectiveChoices = phase.objectives.map(obj => ({
+          name: obj.description,
+          value: obj.id,
+          checked: session!.progress.objectivesCompleted.includes(obj.id) || obj.completed,
+        }));
+
+        if (objectiveChoices.length > 0) {
+          const completedObjectives = await checkbox({
+            message: 'Mark completed objectives:',
+            choices: objectiveChoices,
+          });
+
+          // Update session progress
+          completedObjectives.forEach(objId => {
+            markObjectiveComplete(session!, objId);
+          });
+        }
+
+        // Interactive: Mark completed deliverables
+        const deliverableChoices = phase.deliverables.map(del => ({
+          name: del.title,
+          value: del.id,
+          checked: session!.progress.deliverablesCompleted.includes(del.id) || del.completed,
+        }));
+
+        if (deliverableChoices.length > 0) {
+          const completedDeliverables = await checkbox({
+            message: 'Mark completed deliverables:',
+            choices: deliverableChoices,
+          });
+
+          // Update session progress
+          completedDeliverables.forEach(delId => {
+            markDeliverableComplete(session!, delId);
+          });
+        }
+
+        // Add session notes
+        const addNotes = await confirm({
+          message: 'Add session notes?',
+          default: false,
+        });
+
+        if (addNotes) {
+          const notes = await input({
+            message: 'Enter notes:',
+          });
+          if (notes.trim()) {
+            addSessionNote(session, notes.trim());
+          }
+        }
+      } else {
+        // Quick mode: just add notes if provided
+        if (options.notes) {
+          addSessionNote(session, options.notes);
+        }
+      }
+
+      // Generate handoff
+      console.log(chalk.cyan('\n📝 Generating handoff...\n'));
+
+      const handoff = generateHandoff(session, phase, session.notes.join('; '));
+
+      // End and save session
+      const filePath = await endSession(session, handoff);
+
+      // Update curriculum progress
+      await updateCurriculumProgress(
+        session.curriculumPath,
+        session.phaseNumber,
+        session.progress.objectivesCompleted,
+        session.progress.deliverablesCompleted
+      );
+
+      // Display summary
+      console.log(chalk.green('   ✅ Session Complete!\n'));
+
+      const objTotal = phase.objectives.length;
+      const objCompleted = session.progress.objectivesCompleted.length;
+      const delTotal = phase.deliverables.length;
+      const delCompleted = session.progress.deliverablesCompleted.length;
+
+      console.log(chalk.white(`   Summary: ${objCompleted}/${objTotal} objectives, ${delCompleted}/${delTotal} deliverables`));
+      console.log(chalk.white(`   Time: ${durationStr}`));
+      console.log();
+
+      // Display handoff
+      console.log(chalk.cyan('   📋 Handoff for Next Session:'));
+      console.log(chalk.cyan('   ' + '─'.repeat(40)));
+
+      if (handoff.completedWork.length > 0) {
+        console.log(chalk.white('   Completed:'));
+        handoff.completedWork.forEach(work => {
+          console.log(chalk.green(`   • ${work}`));
+        });
+      }
+
+      if (handoff.remainingWork.length > 0) {
+        console.log(chalk.white('\n   Remaining:'));
+        handoff.remainingWork.forEach(work => {
+          console.log(chalk.yellow(`   • ${work}`));
+        });
+      }
+
+      if (handoff.nextSteps.length > 0) {
+        console.log(chalk.white('\n   Next Steps:'));
+        handoff.nextSteps.forEach(step => {
+          console.log(chalk.cyan(`   • ${step}`));
+        });
+      }
+
+      console.log(chalk.cyan('   ' + '─'.repeat(40)));
+      console.log();
+
+      console.log(chalk.gray(`   💾 Session saved to: ${filePath}`));
+
+      // BEADS sync if available
+      if (isBeadsAvailable() && isBeadsInitialized()) {
+        try {
+          // Update BEADS with session progress
+          const deliverableBeadsIds = phase.deliverables
+            .filter(d => session!.progress.deliverablesCompleted.includes(d.id) && d.beadsTaskId)
+            .map(d => d.beadsTaskId!);
+
+          updateBeadsSessionProgress(
+            deliverableBeadsIds,
+            phase.beadsEpicId,
+            handoff.summary
+          );
+
+          syncBeads();
+          console.log(chalk.gray('   🔄 BEADS synced'));
+        } catch {
+          // Ignore BEADS sync errors
+        }
+      }
+    } catch (error) {
+      console.error(chalk.red('Error ending session:'), error);
+      process.exit(1);
+    }
   });
 
 // ============================================================================
@@ -274,9 +754,8 @@ program
 program
   .command('grow [topic...]')
   .description('Grow - generate and review curriculum with multi-agent collaboration')
-  .option('-f, --file <file>', 'Review existing curriculum from file (JSON)')
-  .option('-o, --output <file>', 'Output file (markdown or JSON)', './curriculum.md')
-  .option('--json', 'Output as JSON instead of markdown')
+  .option('-f, --file <file>', 'Review existing curriculum from .groot/curriculum.json')
+  .option('--markdown <file>', 'Also output as markdown file')
   .option('--beads', 'Create BEADS epics and tasks from curriculum')
   .option('-v, --verbose', 'Show detailed output')
   .option('--debug', 'Show full agent interaction details')
@@ -456,23 +935,25 @@ program
         }
       }
 
-      // Output curriculum
-      if (options.json) {
-        const { writeCurriculumJSON } = await import('../core/curriculum-output');
-        await writeCurriculumJSON(result.finalCurriculum, options.output);
-        console.log(chalk.green(`\n📄 Curriculum saved to ${options.output}`));
-      } else {
+      // Initialize .groot and save curriculum
+      await initGrootDir();
+      const filePath = await saveCurriculum(result.finalCurriculum);
+      console.log(chalk.green(`\n✅ Curriculum saved to ${filePath}`));
+
+      // Also output markdown if requested
+      if (options.markdown) {
         const { writeCurriculumMarkdown } = await import('../core/curriculum-output');
-        await writeCurriculumMarkdown(result.finalCurriculum, options.output);
-        console.log(chalk.green(`\n📄 Curriculum saved to ${options.output}`));
+        await writeCurriculumMarkdown(result.finalCurriculum, options.markdown);
+        console.log(chalk.green(`📄 Markdown saved to ${options.markdown}`));
       }
 
       // Next steps
       console.log(chalk.cyan('\nNext steps:'));
       console.log(chalk.gray('  1. Review the curriculum'));
-      console.log(chalk.gray('  2. Use "groot ask" to learn about concepts'));
+      console.log(chalk.gray('  2. Use "groot wake" to start a learning session'));
+      console.log(chalk.gray('  3. Use "groot ask" to learn about concepts'));
       if (options.beads) {
-        console.log(chalk.gray('  3. Run "bd ready" to see ready work in BEADS'));
+        console.log(chalk.gray('  4. Run "bd ready" to see ready work in BEADS'));
       }
     } catch (error) {
       console.error(chalk.red('\n❌ Error during orchestration:'), error);

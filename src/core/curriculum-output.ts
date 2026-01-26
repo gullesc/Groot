@@ -1,11 +1,14 @@
 /**
  * Curriculum Output
  *
- * Handles formatting and writing curricula to markdown and JSON
+ * Handles formatting, reading, and writing curricula to markdown and JSON.
+ * Curriculums are stored in .groot/curriculum.json within the project directory.
  */
 
-import { writeFile } from 'fs/promises';
-import { Curriculum, GROWTH_STAGE_ICONS } from '../types';
+import { writeFile, readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { Curriculum, GROWTH_STAGE_ICONS, Phase } from '../types';
+import { getCurriculumPath, ensureGrootDir, hasCurriculum } from './paths';
 
 /**
  * Convert curriculum to markdown format
@@ -110,4 +113,149 @@ export async function writeCurriculumJSON(curriculum: unknown, filePath: string)
  */
 export function formatCurriculumJSON(curriculum: unknown): string {
   return JSON.stringify(curriculum, null, 2);
+}
+
+/**
+ * Load a curriculum from a JSON file
+ */
+export async function loadCurriculumJSON(filePath: string): Promise<Curriculum> {
+  if (!existsSync(filePath)) {
+    throw new Error(`Curriculum file not found: ${filePath}`);
+  }
+
+  const content = await readFile(filePath, 'utf-8');
+  const data = JSON.parse(content);
+
+  // Restore Date objects
+  return {
+    ...data,
+    createdAt: new Date(data.createdAt),
+    updatedAt: new Date(data.updatedAt),
+  } as Curriculum;
+}
+
+/**
+ * Get the current project's curriculum
+ * Returns null if no curriculum exists
+ */
+export async function getCurrentCurriculum(): Promise<Curriculum | null> {
+  if (!hasCurriculum()) {
+    return null;
+  }
+
+  try {
+    return await loadCurriculumJSON(getCurriculumPath());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save a curriculum to the project's .groot/curriculum.json
+ */
+export async function saveCurriculum(curriculum: Curriculum): Promise<string> {
+  await ensureGrootDir();
+  const filePath = getCurriculumPath();
+  await writeCurriculumJSON(curriculum, filePath);
+  return filePath;
+}
+
+/**
+ * Get curriculum summary for display
+ */
+export async function getCurriculumSummary(): Promise<{
+  path: string;
+  title: string;
+  topic: string;
+  phaseCount: number;
+  phases: Array<{
+    number: number;
+    title: string;
+    status: Phase['status'];
+  }>;
+} | null> {
+  const curriculum = await getCurrentCurriculum();
+  if (!curriculum) {
+    return null;
+  }
+
+  return {
+    path: getCurriculumPath(),
+    title: curriculum.title,
+    topic: curriculum.topic,
+    phaseCount: curriculum.phases.length,
+    phases: curriculum.phases.map(p => ({
+      number: p.number,
+      title: p.title,
+      status: p.status,
+    })),
+  };
+}
+
+/**
+ * Update phase status in a curriculum file
+ */
+export async function updatePhaseStatus(
+  filePath: string,
+  phaseNumber: number,
+  status: Phase['status']
+): Promise<void> {
+  const curriculum = await loadCurriculumJSON(filePath);
+  const phase = curriculum.phases.find(p => p.number === phaseNumber);
+
+  if (phase) {
+    phase.status = status;
+    curriculum.updatedAt = new Date();
+    await writeCurriculumJSON(curriculum, filePath);
+  }
+}
+
+/**
+ * Mark objectives and deliverables as completed in a curriculum file
+ */
+export async function updateCurriculumProgress(
+  filePath: string,
+  phaseNumber: number,
+  completedObjectiveIds: string[],
+  completedDeliverableIds: string[]
+): Promise<void> {
+  const curriculum = await loadCurriculumJSON(filePath);
+  const phase = curriculum.phases.find(p => p.number === phaseNumber);
+
+  if (phase) {
+    // Mark objectives as completed
+    phase.objectives.forEach(obj => {
+      if (completedObjectiveIds.includes(obj.id)) {
+        obj.completed = true;
+      }
+    });
+
+    // Mark deliverables as completed
+    phase.deliverables.forEach(del => {
+      if (completedDeliverableIds.includes(del.id)) {
+        del.completed = true;
+      }
+    });
+
+    // Update phase status based on completion
+    const allObjectivesComplete = phase.objectives.every(o => o.completed);
+    const allDeliverablesComplete = phase.deliverables.every(d => d.completed);
+
+    if (allObjectivesComplete && allDeliverablesComplete) {
+      phase.status = 'completed';
+      // Unlock next phase if it exists
+      const nextPhase = curriculum.phases.find(p => p.number === phaseNumber + 1);
+      if (nextPhase && nextPhase.status === 'locked') {
+        nextPhase.status = 'available';
+      }
+    } else if (
+      completedObjectiveIds.length > 0 ||
+      completedDeliverableIds.length > 0
+    ) {
+      phase.status = 'in_progress';
+    }
+
+    curriculum.updatedAt = new Date();
+    await writeCurriculumJSON(curriculum, filePath);
+  }
 }

@@ -147,3 +147,45 @@ export function getBeadsContext(): BeadsContext | null {
 export function syncBeads(): void {
   execSync('bd sync', { stdio: 'pipe' });
 }
+
+/**
+ * Add a comment to an issue
+ */
+export function addIssueComment(id: string, comment: string): void {
+  try {
+    // Escape quotes in the comment
+    const escapedComment = comment.replace(/"/g, '\\"');
+    execSync(`bd comment ${id} "${escapedComment}"`, { stdio: 'pipe' });
+  } catch {
+    // Silently fail if comment fails
+  }
+}
+
+/**
+ * Update session progress in BEADS
+ * - Closes completed deliverables
+ * - Adds handoff as comment to phase epic
+ */
+export function updateBeadsSessionProgress(
+  completedDeliverableIds: string[],
+  phaseEpicId: string | undefined,
+  handoffSummary: string
+): void {
+  if (!isBeadsAvailable() || !isBeadsInitialized()) {
+    return;
+  }
+
+  // Close completed deliverables
+  completedDeliverableIds.forEach(delId => {
+    try {
+      updateIssueStatus(delId, 'closed');
+    } catch {
+      // Ignore errors for individual deliverables
+    }
+  });
+
+  // Add handoff as comment to phase epic
+  if (phaseEpicId && handoffSummary) {
+    addIssueComment(phaseEpicId, `Session Handoff:\n${handoffSummary}`);
+  }
+}
