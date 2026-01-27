@@ -29,9 +29,7 @@ import {
 } from '../core/journal';
 import {
   startSessionFromPath,
-  getCurrentSession,
   setCurrentSession,
-  findActiveSession,
   listSessions,
   endSession,
   markObjectiveComplete,
@@ -40,6 +38,9 @@ import {
   generateHandoff,
   formatDuration,
   getSessionSummary,
+  saveActiveSession,
+  loadActiveSession,
+  addQuestionAsked,
 } from '../core/session';
 import {
   loadCurriculumJSON,
@@ -127,15 +128,22 @@ program
     }
 
     console.log(chalk.green(`\n🪵 Bark is thinking...\n`));
-    
+
     try {
+      // Log question to active session if one exists
+      const session = await loadActiveSession();
+      if (session && session.status === 'active') {
+        addQuestionAsked(session, question);
+        await saveActiveSession(session);
+      }
+
       const bark = createBarkAgent(config.anthropicApiKey!);
       const response = await bark.chat(question);
-      
+
       console.log(chalk.cyan('─'.repeat(60)));
       console.log(response.content);
       console.log(chalk.cyan('─'.repeat(60)));
-      
+
       if (options.verbose && response.toolCalls) {
         console.log(chalk.gray('\nTools used:'));
         response.toolCalls.forEach(tc => {
@@ -192,13 +200,10 @@ program
       console.log(chalk.gray('Create one with: groot plant "your topic"\n'));
     }
 
-    // Check for active session
-    let session = getCurrentSession();
-    if (!session) {
-      session = await findActiveSession();
-    }
+    // Check for active session (from file)
+    const session = await loadActiveSession();
 
-    if (session) {
+    if (session && session.status === 'active') {
       const summary = getSessionSummary(session);
       console.log(chalk.green('📖 Active Session'));
       console.log(chalk.white(`   Phase: ${session.phaseNumber} - ${session.phaseTitle}`));
@@ -399,9 +404,9 @@ program
         return;
       }
 
-      // Check for existing active session
-      const existingSession = await findActiveSession();
-      if (existingSession) {
+      // Check for existing active session (file-based persistence)
+      const existingSession = await loadActiveSession();
+      if (existingSession && existingSession.status === 'active') {
         const summary = getSessionSummary(existingSession);
         console.log(chalk.yellow('⚠️  Active session found:'));
         console.log(chalk.white(`   Curriculum: ${existingSession.curriculumTitle}`));
@@ -501,6 +506,10 @@ program
       console.log(chalk.cyan('\n🌅 Starting learning session...\n'));
 
       const session = await startSessionFromPath(curriculumPath, curriculum, selectedPhase);
+
+      // Persist active session to file
+      await saveActiveSession(session);
+
       await displaySessionInfo(session);
 
     } catch (error) {
@@ -580,13 +589,10 @@ program
     console.log(chalk.blue(`\n🌙 GROOT - Time to Rest\n`));
 
     try {
-      // Find active session
-      let session = getCurrentSession();
-      if (!session) {
-        session = await findActiveSession();
-      }
+      // Find active session (from file)
+      const session = await loadActiveSession();
 
-      if (!session) {
+      if (!session || session.status !== 'active') {
         console.log(chalk.yellow('No active session found.'));
         console.log(chalk.gray('Start one with: groot wake'));
         return;
@@ -1105,6 +1111,13 @@ program
 
     // Save entry
     const entry = saveJournalEntry(title, content, context);
+
+    // Also add note to active session if one exists
+    const session = await loadActiveSession();
+    if (session && session.status === 'active') {
+      addSessionNote(session, `Journal: ${title}`);
+      await saveActiveSession(session);
+    }
 
     console.log(chalk.green('\n📓 Learning Journal Entry Created'));
     console.log(chalk.gray(`   File: ${getJournalPath()}/${new Date().toISOString().split('T')[0]}-${entry.slug}.md`));

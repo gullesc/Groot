@@ -6,10 +6,11 @@
  *
  * Structure:
  *   .groot/
- *   ├── curriculum.json    # The active curriculum
- *   ├── sessions/          # Learning session records
+ *   ├── curriculum.json      # The active curriculum
+ *   ├── active-session.json  # Currently active learning session
+ *   ├── sessions/            # Completed session records
  *   │   └── YYYY-MM-DD-phase-N.json
- *   └── journal/           # Learning journal entries
+ *   └── journal/             # Learning journal entries
  *       └── YYYY-MM-DD-slug.md
  */
 
@@ -32,6 +33,20 @@ export function getGrootDir(): string {
  */
 export function getCurriculumPath(): string {
   return join(getGrootDir(), 'curriculum.json');
+}
+
+/**
+ * Get the active session file path
+ */
+export function getActiveSessionPath(): string {
+  return join(getGrootDir(), 'active-session.json');
+}
+
+/**
+ * Check if there is an active session
+ */
+export function hasActiveSessionFile(): boolean {
+  return existsSync(getActiveSessionPath());
 }
 
 /**

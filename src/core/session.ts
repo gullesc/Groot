@@ -5,7 +5,7 @@
  * Sessions persist learning progress across multiple work periods.
  */
 
-import { readFile, writeFile, readdir } from 'fs/promises';
+import { readFile, writeFile, readdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,12 +15,12 @@ import {
   Curriculum,
   Phase,
 } from '../types';
-import { getSessionsDir, ensureGrootDir } from './paths';
+import { getSessionsDir, getActiveSessionPath, hasActiveSessionFile, ensureGrootDir } from './paths';
 
 // Re-export for backwards compatibility
 export { getSessionsDir } from './paths';
 
-// Track current active session in memory
+// Track current active session in memory (synced with file)
 let currentSession: Session | null = null;
 
 /**
@@ -103,10 +103,76 @@ export function setCurrentSession(session: Session | null): void {
 }
 
 /**
- * Check if there's an active session
+ * Check if there's an active session (in memory or file)
  */
 export function hasActiveSession(): boolean {
-  return currentSession !== null && currentSession.status === 'active';
+  return (currentSession !== null && currentSession.status === 'active') || hasActiveSessionFile();
+}
+
+// ============================================================================
+// Active Session File Persistence
+// ============================================================================
+
+/**
+ * Save the current active session to .groot/active-session.json
+ */
+export async function saveActiveSession(session: Session): Promise<void> {
+  await ensureGrootDir();
+  const filePath = getActiveSessionPath();
+  const serialized = JSON.stringify(session, null, 2);
+  await writeFile(filePath, serialized, 'utf-8');
+  currentSession = session;
+}
+
+/**
+ * Load the active session from .groot/active-session.json
+ */
+export async function loadActiveSession(): Promise<Session | null> {
+  const filePath = getActiveSessionPath();
+
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const content = await readFile(filePath, 'utf-8');
+    const data = JSON.parse(content);
+
+    // Restore Date objects
+    const session: Session = {
+      ...data,
+      startedAt: new Date(data.startedAt),
+      endedAt: data.endedAt ? new Date(data.endedAt) : undefined,
+    };
+
+    currentSession = session;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear the active session file (called on rest)
+ */
+export async function clearActiveSession(): Promise<void> {
+  const filePath = getActiveSessionPath();
+
+  if (existsSync(filePath)) {
+    await unlink(filePath);
+  }
+
+  currentSession = null;
+}
+
+/**
+ * Get active session from memory or file
+ */
+export async function getActiveSession(): Promise<Session | null> {
+  if (currentSession) {
+    return currentSession;
+  }
+  return loadActiveSession();
 }
 
 /**
@@ -206,10 +272,11 @@ export async function endSession(
   const end = new Date(session.endedAt).getTime();
   session.progress.timeSpentMinutes = Math.round((end - start) / (1000 * 60));
 
+  // Save to sessions directory
   const filePath = await saveSession(session);
 
-  // Clear current session
-  currentSession = null;
+  // Clear active session (both memory and file)
+  await clearActiveSession();
 
   return filePath;
 }
