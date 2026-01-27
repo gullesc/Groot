@@ -10,3 +10,4 @@ export * from './curriculum-beads';
 export * from './orchestrator';
 export * from './journal';
 export * from './session';
+export * from './scaffold';

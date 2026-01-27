@@ -53,8 +53,13 @@ import {
   getCurriculumPath,
   initGrootDir,
 } from '../core/paths';
-import { Curriculum, AgentFeedback, Session } from '../types';
+import { Curriculum, AgentFeedback, Session, TemplateType } from '../types';
 import { input, select, checkbox, confirm } from '@inquirer/prompts';
+import {
+  scaffoldPhase,
+  getAvailableTemplateTypes,
+  getTemplate,
+} from '../core/scaffold';
 
 const program = new Command();
 
@@ -1111,15 +1116,165 @@ program
   });
 
 // ============================================================================
-// groot seed - Scaffold project files (placeholder)
+// groot seed - Scaffold project files
 // ============================================================================
 program
   .command('seed')
-  .description('Seed - scaffold project files for current phase')
-  .action(() => {
+  .description('Seed - scaffold project files for a curriculum phase')
+  .option('-p, --phase <number>', 'Phase number to scaffold')
+  .option('-d, --dry-run', 'Preview what would be created without making changes')
+  .option('-f, --force', 'Overwrite existing files')
+  .option('-t, --template <type>', 'Project template (typescript, javascript, python, minimal)')
+  .option('-o, --output <dir>', 'Output directory', './')
+  .option('-v, --verbose', 'Show detailed output')
+  .action(async (options) => {
     console.log(LOGO);
-    console.log(chalk.yellow(`🌾 Project scaffolding is still growing...`));
-    console.log(chalk.gray(`   This feature will be implemented in Phase 5.`));
+    console.log(chalk.green(`\n🌾 GROOT - Seed Your Project\n`));
+
+    try {
+      // Check prerequisites
+      if (!isGrootInitialized() || !hasCurriculum()) {
+        console.log(chalk.yellow('No curriculum found in this project.'));
+        console.log(chalk.gray('Generate one with: groot plant "your topic"'));
+        return;
+      }
+
+      // Load curriculum
+      const curriculum = await getCurrentCurriculum();
+      if (!curriculum) {
+        console.log(chalk.red('Failed to load curriculum.'));
+        return;
+      }
+
+      // Show curriculum info
+      console.log(chalk.cyan(`📚 Curriculum: ${curriculum.title}\n`));
+
+      // Select phase
+      let selectedPhase: number;
+
+      if (options.phase) {
+        selectedPhase = parseInt(options.phase, 10);
+        const phase = curriculum.phases.find(p => p.number === selectedPhase);
+        if (!phase) {
+          console.error(chalk.red(`Phase ${selectedPhase} not found in curriculum`));
+          console.log(chalk.gray(`Available phases: ${curriculum.phases.map(p => p.number).join(', ')}`));
+          return;
+        }
+      } else {
+        // Interactive phase selection
+        const phaseChoices = curriculum.phases.map(p => ({
+          name: `Phase ${p.number}: ${p.title} (${p.deliverables.length} deliverables)`,
+          value: p.number,
+        }));
+
+        selectedPhase = await select({
+          message: 'Select a phase to scaffold:',
+          choices: phaseChoices,
+        });
+      }
+
+      const phase = curriculum.phases.find(p => p.number === selectedPhase)!;
+
+      // Select template
+      let templateType: TemplateType = (options.template as TemplateType) || 'typescript';
+
+      if (!options.template) {
+        // Interactive template selection
+        const availableTemplates = await getAvailableTemplateTypes();
+        const templateChoices = await Promise.all(
+          availableTemplates.map(async (t) => {
+            const def = await getTemplate(t);
+            return {
+              name: `${def?.displayName || t} - ${def?.description || ''}`,
+              value: t,
+            };
+          })
+        );
+
+        templateType = await select({
+          message: 'Select a project template:',
+          choices: templateChoices,
+        });
+      }
+
+      // Validate template
+      const template = await getTemplate(templateType);
+      if (!template) {
+        console.error(chalk.red(`Invalid template: ${templateType}`));
+        console.log(chalk.gray('Available templates: typescript, javascript, python, minimal'));
+        return;
+      }
+
+      // Show scaffold plan
+      console.log(chalk.cyan('\n📋 Scaffold Plan:'));
+      console.log(chalk.white(`   Phase: ${phase.number} - ${phase.title}`));
+      console.log(chalk.white(`   Template: ${template.displayName}`));
+      console.log(chalk.white(`   Output: ${options.output}`));
+      console.log(chalk.white(`   Deliverables: ${phase.deliverables.length}`));
+
+      if (options.dryRun) {
+        console.log(chalk.yellow('\n   [DRY RUN - No files will be created]\n'));
+      }
+
+      // Confirm if not dry-run
+      if (!options.dryRun) {
+        const proceed = await confirm({
+          message: 'Proceed with scaffolding?',
+          default: true,
+        });
+
+        if (!proceed) {
+          console.log(chalk.gray('\nScaffolding cancelled.'));
+          return;
+        }
+      }
+
+      // Execute scaffolding
+      const result = await scaffoldPhase(curriculum, {
+        phaseNumber: selectedPhase,
+        templateType,
+        outputDir: options.output,
+        dryRun: options.dryRun || false,
+        force: options.force || false,
+        verbose: options.verbose || false,
+      });
+
+      // Display results
+      if (result.filesCreated.length > 0) {
+        console.log(chalk.green(`\n✅ ${options.dryRun ? 'Would create' : 'Created'} ${result.filesCreated.length} files:`));
+        result.filesCreated.forEach(f => {
+          console.log(chalk.gray(`   ${options.dryRun ? '📝' : '✓'} ${f}`));
+        });
+      }
+
+      if (result.filesSkipped.length > 0) {
+        console.log(chalk.yellow(`\n⚠️  Skipped ${result.filesSkipped.length} existing files:`));
+        result.filesSkipped.forEach(f => {
+          console.log(chalk.gray(`   → ${f}`));
+        });
+        console.log(chalk.gray('   Use --force to overwrite'));
+      }
+
+      if (result.errors.length > 0) {
+        console.log(chalk.red(`\n❌ Errors:`));
+        result.errors.forEach(e => {
+          console.log(chalk.red(`   ${e}`));
+        });
+      }
+
+      // Next steps
+      if (result.success && !options.dryRun) {
+        console.log(chalk.cyan('\n🌱 Next steps:'));
+        console.log(chalk.gray('   1. Review generated files'));
+        console.log(chalk.gray(`   2. Run: groot wake --phase ${selectedPhase}`));
+        console.log(chalk.gray('   3. Implement the deliverables'));
+        console.log(chalk.gray('   4. Use: groot ask <question> for help'));
+      }
+
+    } catch (error) {
+      console.error(chalk.red('Error scaffolding project:'), error);
+      process.exit(1);
+    }
   });
 
 // Parse arguments

@@ -288,3 +288,46 @@ export interface JournalContext {
   curriculumId?: string;
   activity?: string;
 }
+
+// ============================================================================
+// Scaffolding Types (Phase 5)
+// ============================================================================
+
+export type TemplateType = 'typescript' | 'javascript' | 'python' | 'minimal';
+
+export interface ScaffoldOptions {
+  phaseNumber: number;
+  templateType: TemplateType;
+  outputDir: string;
+  dryRun: boolean;
+  force: boolean;
+  verbose: boolean;
+}
+
+export interface ScaffoldFile {
+  path: string;               // Relative path from output dir
+  content: string;            // File content (empty for directories)
+  type: 'file' | 'directory';
+}
+
+export interface ScaffoldResult {
+  success: boolean;
+  filesCreated: string[];
+  filesSkipped: string[];
+  errors: string[];
+}
+
+export interface ScaffoldContext {
+  curriculum: Curriculum;
+  phase: Phase;
+  template: TemplateType;
+  outputDir: string;
+}
+
+export interface TemplateDefinition {
+  name: TemplateType;
+  displayName: string;
+  description: string;
+  fileExtension: string;
+  generateFiles: (context: ScaffoldContext) => ScaffoldFile[];
+}

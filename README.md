@@ -95,7 +95,7 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | Phase 2 | ✅ Complete | Curriculum generation with Seedling agent |
 | Phase 3 | ✅ Complete | Multi-agent orchestration with Canopy agent |
 | Phase 4 | ✅ Complete | Session management and progress tracking |
-| Phase 5 | 🚧 Planned | Project scaffolding |
+| Phase 5 | ✅ Complete | Project scaffolding with templates |
 | Phase 6 | 🚧 Planned | Extensibility and distribution |
 
 ## 📋 CLI Commands
@@ -110,7 +110,7 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | `groot status` | Show curriculum and session progress |
 | `groot ask <question>` | Ask the tutor a question |
 | `groot remember <title>` | Capture learning notes |
-| `groot seed` | 🚧 Scaffold project files (Phase 5) |
+| `groot seed` | Scaffold project files for a phase |
 
 ### Command Examples
 
@@ -135,6 +135,12 @@ groot status                             # Check progress
 groot ask "What is dependency injection?"
 groot remember "Key insight" -c "content"
 groot remember --list                    # List journal entries
+
+# Scaffolding
+groot seed                               # Interactive template/phase selection
+groot seed --phase 1 --template typescript  # TypeScript project
+groot seed --phase 2 --template python   # Python project
+groot seed --dry-run                     # Preview without creating files
 ```
 
 ## 🛠️ Tech Stack

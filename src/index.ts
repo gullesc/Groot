@@ -79,4 +79,20 @@ export {
   hasCurriculum,
   initGrootDir,
   ensureGrootDir,
+  // Scaffold functions
+  scaffoldPhase,
+  generateFileName,
+  toPascalCase,
+  toSnakeCase,
+  generateTodoComments,
+  getAvailableTemplateTypes,
+  getTemplate,
+  validateScaffoldOptions,
 } from './core';
+
+// Export template functions
+export {
+  getTemplateDefinition,
+  getAvailableTemplates,
+  getAllTemplateDefinitions,
+} from './templates';
