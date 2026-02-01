@@ -117,7 +117,7 @@ export abstract class BaseAgent {
     // Call Claude API
     const response = await this.client.messages.create({
       model: this.model,
-      max_tokens: 4096,
+      max_tokens: 8192,  // Increased for complex tool outputs like curriculum generation
       system: this.buildSystemPrompt(),
       tools: this.getAnthropicTools().length > 0 ? this.getAnthropicTools() : undefined,
       messages,

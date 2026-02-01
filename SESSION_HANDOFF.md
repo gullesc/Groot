@@ -1,49 +1,62 @@
-# Session Handoff - January 26, 2026
+# Session Handoff - February 1, 2026
 
 ## Session Summary
 
-Tonight we completed **Phase 5: Project Scaffolding** and fixed **Session Persistence**.
+Tonight we completed **Phase 6: Extensibility & Configuration** and **Phase 7: Interactive Curriculum Generation**.
 
 ### Accomplishments
 
-1. **`groot seed` Command** - Scaffold project files from curriculum deliverables
-   - 4 templates: TypeScript, JavaScript, Python, Minimal
-   - Interactive phase/template selection
-   - `--dry-run` preview mode
-   - Generates code stubs with TODOs from acceptance criteria
+1. **Phase 6: Extensibility & Configuration**
+   - YAML-based configuration system (`.grootrc`, `~/.groot/config.yaml`)
+   - Hierarchical config loading (defaults → user → project → env)
+   - Post-scaffold hooks (`npm install`, `pip install`, etc.)
+   - New templates: React and Vue (6 templates total)
+   - Custom template plugin system (`~/.groot/templates/`)
+   - `groot config` command for managing settings
 
-2. **Session Persistence Fix** - Sessions now persist between CLI invocations
-   - Active session saved to `.groot/active-session.json`
-   - `groot wake` creates session file
-   - `groot status` reads from file
-   - `groot ask` logs questions to session
-   - `groot rest` moves to `sessions/` and clears active file
+2. **Phase 7: Interactive Curriculum Generation**
+   - `groot plant --interactive` flag for personalized curricula
+   - Gathers learner preferences:
+     - Experience level (beginner → advanced)
+     - Learning goal (career, project, hobby, academic)
+     - Weekly time commitment
+     - Preferred programming language
+     - Focus areas (hands-on, theory, portfolio, etc.)
+   - Tailors curriculum based on learner profile
+
+3. **Bug Fixes**
+   - Fixed curriculum generation (phases array validation)
+   - Improved error handling in Seedling agent
+   - Increased max_tokens for complex tool outputs
 
 ### What's Working
 
 ```bash
 # Initialize and generate curriculum
 groot init
-groot plant "Building REST APIs"
-groot grow "TypeScript" --debug
+groot plant "Building REST APIs"                    # Quick generation
+groot plant "Building REST APIs" --interactive      # Personalized!
 
-# Scaffold project files
-groot seed                          # Interactive
+# Scaffold project files (6 templates!)
+groot seed --list-templates
 groot seed --phase 1 --template typescript
-groot seed --phase 2 --template python
-groot seed --dry-run                # Preview
+groot seed --phase 1 --template react
+groot seed --phase 1 --template vue
+groot seed --phase 1 --template python
+groot seed --no-hooks                               # Skip npm install
 
-# Session management (now persists!)
-groot wake --phase 1                # Creates active-session.json
-groot status                        # Shows active session
-groot ask "What is middleware?"     # Logged to session
-groot remember "Key insight"        # Noted in session
-groot rest                          # Saves and clears
-
-# Learning tools
-groot ask "What is TypeScript?"
+# Session management
+groot wake --phase 1
+groot status
+groot ask "What is middleware?"
 groot remember "Key insight" -c "Content"
-groot remember --list
+groot rest
+
+# Configuration
+groot config --list                # Show all config
+groot config --get llm.model       # Get specific value
+groot config --init                # Create project .grootrc
+groot config --init-user           # Create ~/.groot/config.yaml
 ```
 
 ### Completed Phases
@@ -53,15 +66,8 @@ groot remember --list
 - ✅ **Phase 3**: Multi-agent orchestration (Canopy + Orchestrator)
 - ✅ **Phase 4**: Session management and progress tracking
 - ✅ **Phase 5**: Project scaffolding with templates
-
-### Next Phase: Phase 6 - Extensibility & Distribution
-
-**Potential Goals**:
-1. npm package distribution
-2. Custom template support via `.grootrc`
-3. Post-scaffold hooks (npm install, git init)
-4. Plugin system for additional templates
-5. Configuration file support
+- ✅ **Phase 6**: Extensibility & Configuration
+- ✅ **Phase 7**: Interactive Curriculum Generation
 
 ### Project Architecture
 
@@ -73,13 +79,19 @@ groot remember --list
 │   └── YYYY-MM-DD-*.json
 └── journal/               # Learning notes
     └── YYYY-MM-DD-*.md
+
+~/.groot/
+├── config.yaml            # User-level configuration
+└── templates/             # Custom templates
+    └── my-template/
+        └── template.yaml
 ```
 
 ```
 src/
 ├── agents/           # Seedling, Bark, Canopy
-├── core/             # Orchestrator, session, scaffold, paths
-├── templates/        # TypeScript, JavaScript, Python, Minimal
+├── core/             # Orchestrator, session, scaffold, hooks, config
+├── templates/        # TypeScript, JavaScript, Python, Minimal, React, Vue
 ├── cli/              # Command implementations
 └── types/            # TypeScript definitions
 ```
@@ -88,20 +100,18 @@ src/
 
 | File | Changes |
 |------|---------|
-| `src/core/scaffold.ts` | NEW - Core scaffolding logic |
-| `src/templates/*.ts` | NEW - 4 template implementations |
-| `src/core/paths.ts` | Added `getActiveSessionPath()` |
-| `src/core/session.ts` | Added file-based persistence |
-| `src/cli/index.ts` | Implemented `seed`, updated session commands |
-| `docs/phase5-completion.md` | NEW - Phase 5 summary |
+| `src/cli/index.ts` | Added `--interactive` flag, `gatherCurriculumPreferences()`, `buildPersonalizedPrompt()` |
+| `src/agents/seedling.ts` | Added defensive checks, debug logging, validation |
+| `src/agents/base.ts` | Increased max_tokens to 8192 |
+| `src/core/config.ts` | YAML hierarchical loading, `loadExtendedConfig()` |
+| `src/core/hooks.ts` | NEW - Post-scaffold hook execution |
+| `src/core/plugin-discovery.ts` | NEW - Custom template discovery |
+| `src/templates/react.ts` | NEW - React + Vite template |
+| `src/templates/vue.ts` | NEW - Vue 3 + Vite template |
 
 ### Project State
 
 - **Branch**: main
-- **Last Commits**:
-  - `fix: add file-based session persistence`
-  - `feat: implement Phase 5 - Project Scaffolding`
-- **Remote**: Synced to GitHub
 - **Build Status**: ✅ Clean
 - **Lint Status**: ✅ Clean
 
@@ -112,37 +122,52 @@ src/
 npm run build
 npm run lint
 
-# 2. Test scaffolding
+# 2. Test interactive curriculum generation
 mkdir /tmp/test && cd /tmp/test
 groot init
-groot plant "Test Topic"
-groot seed --phase 1 --template typescript
+groot plant "Machine Learning Fundamentals" --interactive
+# Answer the questions, watch personalized curriculum generate!
 
-# 3. Test session persistence
-groot wake --phase 1
-groot status          # Should show active session
-groot rest -q
-groot status          # Should show no active session
+# 3. Test new templates
+groot seed --list-templates    # Should show 6 templates
+groot seed --phase 1 --template react --dry-run
+
+# 4. Test configuration
+groot config --list
+groot config --init
 ```
+
+### Demo Script
+
+For stakeholder demos, use:
+1. `groot init`
+2. `groot plant "Your topic" --interactive` (shows personalization!)
+3. `groot status`
+4. `groot seed --list-templates`
+5. `groot seed --phase 1 --template python`
+6. `groot wake --phase 1`
+7. `groot ask "question"`
+8. `groot remember "note" -c "content"`
+9. `groot rest`
+10. `groot config --list`
+
+### Potential Phase 8 Ideas
+
+- Curriculum regeneration/refinement
+- Progress tracking with analytics
+- Multi-user support
+- Export curriculum to different formats
+- Integration with external learning resources
+- Spaced repetition reminders
 
 ### Resources
 
-- Phase 1 Summary: `docs/phase1-completion.md`
-- Phase 2 Summary: `docs/phase2-completion.md`
-- Phase 3 Summary: `docs/phase3-completion.md`
-- Phase 4 Summary: `docs/phase4-completion.md`
-- Phase 5 Summary: `docs/phase5-completion.md`
+- Phase 1-5 Summaries: `docs/phase*-completion.md`
 - Project Conventions: `AGENTS.md`
-
-### Notes
-
-- Session persistence uses simple JSON file (not BEADS) for ephemeral state
-- BEADS remains optional for durable task tracking
-- Templates are extensible - add new ones in `src/templates/`
-- Scaffolding generates README.md and OBJECTIVES.md for all templates
+- Plan file: `~/.claude/plans/gentle-sniffing-dahl.md`
 
 ---
 
-**Status**: Phase 5 Complete, Ready for Phase 6 🌳
+**Status**: Phase 7 Complete 🌳
 
 *"We are Groot."*

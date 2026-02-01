@@ -288,11 +288,128 @@ program
   });
 
 // ============================================================================
+// Interactive curriculum preferences
+// ============================================================================
+interface CurriculumPreferences {
+  experienceLevel: string;
+  learningGoal: string;
+  weeklyHours: string;
+  preferredLanguage: string;
+  focusAreas: string[];
+}
+
+async function gatherCurriculumPreferences(topic: string): Promise<CurriculumPreferences> {
+  console.log(chalk.cyan('\n🌿 Let me learn about your goals to personalize your curriculum.\n'));
+
+  const experienceLevel = await select({
+    message: `What's your experience level with "${topic}"?`,
+    choices: [
+      { value: 'beginner', name: 'Beginner - New to this topic' },
+      { value: 'some', name: 'Some Experience - Familiar with basics' },
+      { value: 'intermediate', name: 'Intermediate - Have built small projects' },
+      { value: 'advanced', name: 'Advanced - Want to deepen expertise' },
+    ],
+  });
+
+  const learningGoal = await select({
+    message: 'What is your primary learning goal?',
+    choices: [
+      { value: 'career', name: 'Career - Job skills or career change' },
+      { value: 'project', name: 'Project - Build something specific' },
+      { value: 'hobby', name: 'Hobby - Personal interest and fun' },
+      { value: 'academic', name: 'Academic - School or certification' },
+    ],
+  });
+
+  const weeklyHours = await select({
+    message: 'How many hours per week can you dedicate?',
+    choices: [
+      { value: '2-5', name: '2-5 hours (casual pace)' },
+      { value: '5-10', name: '5-10 hours (steady progress)' },
+      { value: '10-20', name: '10-20 hours (intensive learning)' },
+      { value: '20+', name: '20+ hours (full immersion)' },
+    ],
+  });
+
+  const preferredLanguage = await select({
+    message: 'Preferred programming language/framework?',
+    choices: [
+      { value: 'python', name: 'Python' },
+      { value: 'typescript', name: 'TypeScript/JavaScript' },
+      { value: 'any', name: 'No preference / Best for the topic' },
+      { value: 'other', name: 'Other (will be considered)' },
+    ],
+  });
+
+  const focusAreas = await checkbox({
+    message: 'Any specific areas to focus on? (optional)',
+    choices: [
+      { value: 'hands-on', name: 'Hands-on projects over theory' },
+      { value: 'theory', name: 'Strong theoretical foundation' },
+      { value: 'best-practices', name: 'Industry best practices' },
+      { value: 'portfolio', name: 'Portfolio-worthy projects' },
+      { value: 'interview', name: 'Interview preparation' },
+    ],
+  });
+
+  return {
+    experienceLevel,
+    learningGoal,
+    weeklyHours,
+    preferredLanguage,
+    focusAreas,
+  };
+}
+
+function buildPersonalizedPrompt(topic: string, prefs: CurriculumPreferences): string {
+  const focusText = prefs.focusAreas.length > 0
+    ? `Focus areas: ${prefs.focusAreas.join(', ')}.`
+    : '';
+
+  return `Generate a comprehensive, project-based learning curriculum for: "${topic}"
+
+LEARNER PROFILE:
+- Experience Level: ${prefs.experienceLevel}
+- Learning Goal: ${prefs.learningGoal}
+- Weekly Time Commitment: ${prefs.weeklyHours} hours
+- Preferred Language: ${prefs.preferredLanguage}
+${focusText}
+
+IMPORTANT: You must call the generate_curriculum_structure tool with ALL fields including the complete phases array.
+
+Tailor the curriculum to this learner's profile:
+- Adjust difficulty and pacing based on their experience level (${prefs.experienceLevel})
+- Align deliverables with their goal (${prefs.learningGoal})
+- Size phases to fit ${prefs.weeklyHours} hours/week commitment
+- Use ${prefs.preferredLanguage === 'any' ? 'the best language for the topic' : prefs.preferredLanguage} where applicable
+${prefs.focusAreas.includes('hands-on') ? '- Emphasize hands-on projects over theory' : ''}
+${prefs.focusAreas.includes('theory') ? '- Include strong theoretical foundations' : ''}
+${prefs.focusAreas.includes('best-practices') ? '- Incorporate industry best practices' : ''}
+${prefs.focusAreas.includes('portfolio') ? '- Make deliverables portfolio-worthy' : ''}
+${prefs.focusAreas.includes('interview') ? '- Include interview-relevant concepts' : ''}
+
+Create a curriculum with:
+- title, description, topic, difficulty, estimatedHours, prerequisites, targetAudience
+- phases: An array of 4-6 progressive learning phases. EACH phase must include:
+  - number (1, 2, 3, etc.)
+  - title (e.g., "Foundations & Setup")
+  - description
+  - growthStage (one of: seed, sprout, sapling, tree, flowering, seeding, forest)
+  - estimatedHours
+  - objectives: Array of objects with "description" field
+  - deliverables: Array of objects with "title", "description", and "acceptanceCriteria" (array of strings)
+  - keyConcepts: Array of objects with "term" and "definition" fields
+
+Call the generate_curriculum_structure tool NOW with the complete curriculum including all phases.`;
+}
+
+// ============================================================================
 // groot plant - Generate a curriculum
 // ============================================================================
 program
   .command('plant <topic...>')
   .description('Plant a seed - generate a new learning curriculum')
+  .option('-i, --interactive', 'Ask clarifying questions to personalize the curriculum')
   .option('--markdown <file>', 'Also output as markdown file')
   .option('--beads', 'Create BEADS epics and tasks from curriculum')
   .option('-v, --verbose', 'Show detailed output')
@@ -321,28 +438,46 @@ program
     }
 
     console.log(LOGO);
-    console.log(chalk.green(`🌿 Seedling is designing your curriculum...\n`));
-    console.log(chalk.gray(`Topic: ${topic}`));
-    console.log();
 
     try {
       // Initialize .groot directory
       await initGrootDir();
 
+      // Gather preferences if interactive mode
+      let prompt: string;
+      if (options.interactive) {
+        const prefs = await gatherCurriculumPreferences(topic);
+        console.log(chalk.green(`\n🌿 Seedling is designing your personalized curriculum...\n`));
+        console.log(chalk.gray(`Topic: ${topic}`));
+        console.log(chalk.gray(`Profile: ${prefs.experienceLevel} | ${prefs.learningGoal} | ${prefs.weeklyHours}h/week`));
+        console.log();
+        prompt = buildPersonalizedPrompt(topic, prefs);
+      } else {
+        console.log(chalk.green(`🌿 Seedling is designing your curriculum...\n`));
+        console.log(chalk.gray(`Topic: ${topic}`));
+        console.log(chalk.gray(`Tip: Use --interactive for a personalized curriculum`));
+        console.log();
+        prompt = `Generate a comprehensive, project-based learning curriculum for: "${topic}"
+
+IMPORTANT: You must call the generate_curriculum_structure tool with ALL fields including the complete phases array.
+
+Create a curriculum with:
+- title, description, topic, difficulty, estimatedHours, prerequisites, targetAudience
+- phases: An array of 4-6 progressive learning phases. EACH phase must include:
+  - number (1, 2, 3, etc.)
+  - title (e.g., "Foundations & Setup")
+  - description
+  - growthStage (one of: seed, sprout, sapling, tree, flowering, seeding, forest)
+  - estimatedHours
+  - objectives: Array of objects with "description" field
+  - deliverables: Array of objects with "title", "description", and "acceptanceCriteria" (array of strings)
+  - keyConcepts: Array of objects with "term" and "definition" fields
+
+Call the generate_curriculum_structure tool NOW with the complete curriculum including all phases.`;
+      }
+
       const { createSeedlingAgent } = await import('../agents/seedling');
       const seedling = createSeedlingAgent(config.anthropicApiKey!);
-
-      // Ask Seedling to generate a curriculum
-      const prompt = `Generate a comprehensive, project-based learning curriculum for: "${topic}"
-
-Please create a curriculum with:
-- 4-6 progressive phases
-- Clear learning objectives for each phase
-- Hands-on deliverables (things to build)
-- Key concepts and definitions
-- Realistic time estimates
-
-Use the generate_curriculum_structure tool to output the curriculum in the proper format.`;
 
       const response = await seedling.chat(prompt);
 
@@ -350,7 +485,16 @@ Use the generate_curriculum_structure tool to output the curriculum in the prope
       if (response.toolCalls && response.toolCalls.length > 0) {
         const curriculumTool = response.toolCalls.find(tc => tc.toolName === 'generate_curriculum_structure');
         if (curriculumTool && curriculumTool.output) {
-          let { curriculum } = curriculumTool.output as { curriculum: Curriculum };
+          const output = curriculumTool.output as { success: boolean; curriculum?: Curriculum; error?: string };
+
+          // Check for tool errors
+          if (!output.success || !output.curriculum) {
+            console.error(chalk.red('Failed to generate curriculum:'));
+            console.error(chalk.red(`  ${output.error || 'Unknown error'}`));
+            process.exit(1);
+          }
+
+          let { curriculum } = output;
 
           // Create BEADS issues if requested
           if (options.beads) {

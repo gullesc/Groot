@@ -177,6 +177,12 @@ Remember: You're not just creating a reading list - you're designing a growth jo
         required: ['title', 'description', 'topic', 'phases'],
       },
       execute: async (input: unknown) => {
+        // Debug logging
+        if (process.env.DEBUG || process.env.GROOT_DEBUG) {
+          console.log('\n[DEBUG] Tool input received:');
+          console.log(JSON.stringify(input, null, 2));
+        }
+
         const curriculumData = input as {
           title: string;
           description: string;
@@ -204,12 +210,20 @@ Remember: You're not just creating a reading list - you're designing a growth jo
           }>;
         };
 
-        // Transform input into full Curriculum object
+        // Validate required fields
+        if (!curriculumData.phases || !Array.isArray(curriculumData.phases)) {
+          return {
+            success: false,
+            error: 'Invalid curriculum data: phases array is required',
+          };
+        }
+
+        // Transform input into full Curriculum object with defensive checks
         const curriculum: Curriculum = {
           id: randomUUID(),
-          title: curriculumData.title,
-          description: curriculumData.description,
-          topic: curriculumData.topic,
+          title: curriculumData.title || 'Untitled Curriculum',
+          description: curriculumData.description || '',
+          topic: curriculumData.topic || '',
           createdAt: new Date(),
           updatedAt: new Date(),
           currentPhaseIndex: 0,
@@ -223,25 +237,25 @@ Remember: You're not just creating a reading list - you're designing a growth jo
           },
           phases: curriculumData.phases.map((phase): Phase => ({
             id: randomUUID(),
-            number: phase.number,
-            title: phase.title,
-            description: phase.description,
-            growthStage: phase.growthStage,
-            estimatedHours: phase.estimatedHours,
+            number: phase.number || 1,
+            title: phase.title || 'Untitled Phase',
+            description: phase.description || '',
+            growthStage: phase.growthStage || 'seed',
+            estimatedHours: phase.estimatedHours || 0,
             status: phase.number === 1 ? 'available' : 'locked',
-            objectives: phase.objectives.map(obj => ({
+            objectives: (phase.objectives || []).map(obj => ({
               id: randomUUID(),
-              description: obj.description,
+              description: obj?.description || '',
               completed: false,
             })),
-            deliverables: phase.deliverables.map(del => ({
+            deliverables: (phase.deliverables || []).map(del => ({
               id: randomUUID(),
-              title: del.title,
-              description: del.description,
-              acceptanceCriteria: del.acceptanceCriteria,
+              title: del?.title || 'Untitled Deliverable',
+              description: del?.description || '',
+              acceptanceCriteria: del?.acceptanceCriteria || [],
               completed: false,
             })),
-            keyConcepts: phase.keyConcepts,
+            keyConcepts: phase.keyConcepts || [],
           })),
         };
 
