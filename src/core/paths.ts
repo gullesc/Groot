@@ -17,6 +17,7 @@
 import { existsSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
+import { homedir } from 'os';
 
 // Base directory for all GROOT data
 const GROOT_DIR = '.groot';
@@ -104,5 +105,94 @@ export async function initGrootDir(): Promise<void> {
 export async function ensureGrootDir(): Promise<void> {
   if (!isGrootInitialized()) {
     await initGrootDir();
+  }
+}
+
+// ============================================================================
+// Phase 6: User-level paths
+// ============================================================================
+
+/**
+ * Get the user's GROOT config directory (~/.groot)
+ */
+export function getUserGrootDir(): string {
+  return join(homedir(), '.groot');
+}
+
+/**
+ * Get the user's GROOT config file path (~/.groot/config.yaml)
+ */
+export function getUserConfigPath(): string {
+  return join(getUserGrootDir(), 'config.yaml');
+}
+
+/**
+ * Check if user config file exists
+ */
+export function hasUserConfig(): boolean {
+  return existsSync(getUserConfigPath());
+}
+
+/**
+ * Get the user's custom templates directory (~/.groot/templates)
+ */
+export function getUserTemplatesDir(): string {
+  return join(getUserGrootDir(), 'templates');
+}
+
+/**
+ * Check if user templates directory exists
+ */
+export function hasUserTemplates(): boolean {
+  return existsSync(getUserTemplatesDir());
+}
+
+/**
+ * Get the project-level config file path
+ * Checks for .grootrc, .grootrc.yaml, or .groot/config.yaml
+ */
+export function getProjectConfigPath(): string | null {
+  const candidates = [
+    join(process.cwd(), '.grootrc'),
+    join(process.cwd(), '.grootrc.yaml'),
+    join(process.cwd(), '.groot', 'config.yaml'),
+  ];
+
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the project's custom templates directory (./templates)
+ */
+export function getProjectTemplatesDir(): string {
+  return join(process.cwd(), 'templates');
+}
+
+/**
+ * Check if project templates directory exists
+ */
+export function hasProjectTemplates(): boolean {
+  return existsSync(getProjectTemplatesDir());
+}
+
+/**
+ * Initialize user's GROOT directory (~/.groot)
+ */
+export async function initUserGrootDir(): Promise<void> {
+  const userDir = getUserGrootDir();
+
+  if (!existsSync(userDir)) {
+    await mkdir(userDir, { recursive: true });
+  }
+
+  const templatesDir = getUserTemplatesDir();
+  if (!existsSync(templatesDir)) {
+    await mkdir(templatesDir, { recursive: true });
   }
 }

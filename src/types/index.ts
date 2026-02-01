@@ -293,7 +293,7 @@ export interface JournalContext {
 // Scaffolding Types (Phase 5)
 // ============================================================================
 
-export type TemplateType = 'typescript' | 'javascript' | 'python' | 'minimal';
+export type TemplateType = 'typescript' | 'javascript' | 'python' | 'minimal' | 'react' | 'vue' | string;
 
 export interface ScaffoldOptions {
   phaseNumber: number;
@@ -330,4 +330,118 @@ export interface TemplateDefinition {
   description: string;
   fileExtension: string;
   generateFiles: (context: ScaffoldContext) => ScaffoldFile[];
+}
+
+// ============================================================================
+// Phase 6: Extensibility Types
+// ============================================================================
+
+/**
+ * LLM Provider configuration (supports Anthropic, Ollama, OpenAI)
+ */
+export interface LLMProviderConfig {
+  provider: 'anthropic' | 'ollama' | 'openai';
+  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+/**
+ * Custom agent prompt overrides
+ */
+export interface AgentPromptOverrides {
+  seedling?: string;
+  bark?: string;
+  canopy?: string;
+}
+
+/**
+ * Post-scaffold hook definition
+ */
+export interface HookDefinition {
+  name: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  runIf?: 'always' | string;  // 'always' or 'file-exists:filename'
+  continueOnError?: boolean;
+}
+
+/**
+ * Hook configuration for a template
+ */
+export interface TemplateHooksConfig {
+  enabled: boolean;
+  hooks?: HookDefinition[];
+}
+
+/**
+ * Extended template definition with hooks
+ */
+export interface ExtendedTemplateDefinition extends TemplateDefinition {
+  defaultHooks?: HookDefinition[];
+}
+
+/**
+ * Extended GROOT configuration with Phase 6 features
+ */
+export interface ExtendedGrootConfig extends GrootConfig {
+  llm?: LLMProviderConfig;
+  agentPrompts?: AgentPromptOverrides;
+  defaultTemplate?: TemplateType;
+  hooks?: {
+    defaults?: Record<string, TemplateHooksConfig>;
+  };
+  templates?: {
+    userDir?: string;
+    projectDir?: string;
+  };
+}
+
+/**
+ * Default extended configuration
+ */
+export const DEFAULT_EXTENDED_CONFIG: ExtendedGrootConfig = {
+  ...DEFAULT_CONFIG,
+  llm: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+  },
+  defaultTemplate: 'typescript',
+  hooks: {
+    defaults: {
+      typescript: { enabled: true },
+      javascript: { enabled: true },
+      python: { enabled: true },
+      react: { enabled: true },
+      vue: { enabled: true },
+      minimal: { enabled: false },
+    },
+  },
+  templates: {
+    userDir: '~/.groot/templates',
+    projectDir: './templates',
+  },
+};
+
+/**
+ * Custom template YAML definition (for plugin discovery)
+ */
+export interface CustomTemplateYaml {
+  name: string;
+  displayName: string;
+  description: string;
+  fileExtension: string;
+  files?: Array<{
+    path: string;
+    content?: string;
+    type?: 'file' | 'directory';
+  }>;
+  deliverableTemplate?: {
+    pathPattern: string;
+    content: string;
+  };
+  hooks?: {
+    postScaffold?: HookDefinition[];
+  };
 }

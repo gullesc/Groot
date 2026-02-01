@@ -11,3 +11,5 @@ export * from './orchestrator';
 export * from './journal';
 export * from './session';
 export * from './scaffold';
+export * from './hooks';
+export * from './plugin-discovery';

@@ -17,7 +17,24 @@ import 'dotenv/config';
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { loadConfig, validateConfig } from '../core/config';
+import {
+  loadConfig,
+  validateConfig,
+  loadExtendedConfig,
+  getConfigValue,
+  generateGrootrcTemplate,
+  generateUserConfigTemplate,
+} from '../core/config';
+import {
+  getUserConfigPath,
+  getProjectConfigPath,
+  initUserGrootDir,
+} from '../core/paths';
+import { displayHookResults } from '../core/hooks';
+import { writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { stringify as yamlStringify } from 'yaml';
+import { join } from 'path';
 import { isBeadsAvailable, isBeadsInitialized, getReadyWork, syncBeads, updateBeadsSessionProgress } from '../core/beads';
 import { createBarkAgent } from '../agents/bark';
 import { createOrchestrator, DebugEvent } from '../core/orchestrator';
@@ -54,7 +71,7 @@ import {
   getCurriculumPath,
   initGrootDir,
 } from '../core/paths';
-import { Curriculum, AgentFeedback, Session, TemplateType } from '../types';
+import { Curriculum, AgentFeedback, Session } from '../types';
 import { input, select, checkbox, confirm } from '@inquirer/prompts';
 import {
   scaffoldPhase,
@@ -1129,6 +1146,109 @@ program
   });
 
 // ============================================================================
+// groot config - View and manage configuration
+// ============================================================================
+program
+  .command('config')
+  .description('View or manage GROOT configuration')
+  .option('-l, --list', 'List all configuration values')
+  .option('-g, --get <key>', 'Get a specific config value (e.g., llm.model)')
+  .option('--init', 'Create a .grootrc file in current directory')
+  .option('--init-user', 'Create ~/.groot/config.yaml user config')
+  .action(async (options) => {
+    // List all config
+    if (options.list) {
+      console.log(LOGO);
+      console.log(chalk.cyan('Current Configuration:\n'));
+
+      const config = loadExtendedConfig();
+      console.log(yamlStringify(config));
+
+      // Show config file locations
+      console.log(chalk.gray('\nConfig file locations:'));
+      console.log(chalk.gray(`  User:    ${getUserConfigPath()}`));
+      const projectPath = getProjectConfigPath();
+      console.log(chalk.gray(`  Project: ${projectPath || '(none)'}`));
+      return;
+    }
+
+    // Get specific value
+    if (options.get) {
+      const config = loadExtendedConfig();
+      const value = getConfigValue(config, options.get);
+
+      if (value === undefined) {
+        console.log(chalk.gray('(not set)'));
+      } else if (typeof value === 'object') {
+        console.log(yamlStringify(value));
+      } else {
+        console.log(value);
+      }
+      return;
+    }
+
+    // Init project config
+    if (options.init) {
+      const configPath = join(process.cwd(), '.grootrc');
+
+      if (existsSync(configPath)) {
+        const overwrite = await confirm({
+          message: '.grootrc already exists. Overwrite?',
+          default: false,
+        });
+        if (!overwrite) {
+          console.log(chalk.gray('Cancelled.'));
+          return;
+        }
+      }
+
+      const template = generateGrootrcTemplate();
+      await writeFile(configPath, template, 'utf-8');
+      console.log(chalk.green(`Created ${configPath}`));
+      console.log(chalk.gray('\nEdit this file to customize GROOT settings for this project.'));
+      return;
+    }
+
+    // Init user config
+    if (options.initUser) {
+      await initUserGrootDir();
+
+      const configPath = getUserConfigPath();
+
+      if (existsSync(configPath)) {
+        const overwrite = await confirm({
+          message: `${configPath} already exists. Overwrite?`,
+          default: false,
+        });
+        if (!overwrite) {
+          console.log(chalk.gray('Cancelled.'));
+          return;
+        }
+      }
+
+      const template = generateUserConfigTemplate();
+      await writeFile(configPath, template, 'utf-8');
+      console.log(chalk.green(`Created ${configPath}`));
+      console.log(chalk.gray('\nEdit this file to customize GROOT settings for all projects.'));
+      return;
+    }
+
+    // Default: show help
+    console.log(LOGO);
+    console.log(chalk.cyan('Configuration Commands:\n'));
+    console.log(chalk.white('  groot config --list        Show all configuration'));
+    console.log(chalk.white('  groot config --get <key>   Get specific value'));
+    console.log(chalk.white('  groot config --init        Create project .grootrc'));
+    console.log(chalk.white('  groot config --init-user   Create user config'));
+    console.log();
+    console.log(chalk.gray('Config files are loaded in this order (later overrides earlier):'));
+    console.log(chalk.gray('  1. Defaults'));
+    console.log(chalk.gray('  2. ~/.groot/config.yaml (user)'));
+    console.log(chalk.gray('  3. .grootrc (project)'));
+    console.log(chalk.gray('  4. Environment variables'));
+  });
+
+// ============================================================================
 // groot seed - Scaffold project files
 // ============================================================================
 program
@@ -1137,10 +1257,35 @@ program
   .option('-p, --phase <number>', 'Phase number to scaffold')
   .option('-d, --dry-run', 'Preview what would be created without making changes')
   .option('-f, --force', 'Overwrite existing files')
-  .option('-t, --template <type>', 'Project template (typescript, javascript, python, minimal)')
+  .option('-t, --template <type>', 'Project template (typescript, javascript, python, minimal, react, vue)')
   .option('-o, --output <dir>', 'Output directory', './')
   .option('-v, --verbose', 'Show detailed output')
+  .option('--no-hooks', 'Skip post-scaffold hooks (e.g., npm install)')
+  .option('--list-templates', 'List all available templates')
   .action(async (options) => {
+    // List templates mode
+    if (options.listTemplates) {
+      console.log(LOGO);
+      console.log(chalk.cyan('Available Templates:\n'));
+
+      const templates = await getAvailableTemplateTypes();
+      const { isBuiltinTemplate, getCustomTemplates } = await import('../templates');
+
+      for (const name of templates) {
+        const def = await getTemplate(name);
+        const isBuiltin = isBuiltinTemplate(name);
+        const label = isBuiltin ? '' : chalk.magenta(' [custom]');
+        console.log(chalk.white(`  ${name.padEnd(15)} ${def?.displayName || name}${label}`));
+        console.log(chalk.gray(`                  ${def?.description || ''}`));
+      }
+
+      const customCount = getCustomTemplates().length;
+      if (customCount > 0) {
+        console.log(chalk.gray(`\n${customCount} custom template(s) from ~/.groot/templates/ or ./templates/`));
+      }
+      return;
+    }
+
     console.log(LOGO);
     console.log(chalk.green(`\n🌾 GROOT - Seed Your Project\n`));
 
@@ -1189,7 +1334,7 @@ program
       const phase = curriculum.phases.find(p => p.number === selectedPhase)!;
 
       // Select template
-      let templateType: TemplateType = (options.template as TemplateType) || 'typescript';
+      let templateType: string = options.template || 'typescript';
 
       if (!options.template) {
         // Interactive template selection
@@ -1250,6 +1395,7 @@ program
         dryRun: options.dryRun || false,
         force: options.force || false,
         verbose: options.verbose || false,
+        skipHooks: options.hooks === false,  // Commander sets this to false when --no-hooks is used
       });
 
       // Display results
@@ -1273,6 +1419,14 @@ program
         result.errors.forEach(e => {
           console.log(chalk.red(`   ${e}`));
         });
+      }
+
+      // Display hook results
+      if (result.hooksExecuted && result.hooksExecuted.length > 0) {
+        console.log(chalk.cyan('\n🔧 Post-scaffold hooks:'));
+        displayHookResults(result.hooksExecuted);
+      } else if (!options.dryRun && options.hooks !== false) {
+        console.log(chalk.gray('\n   No post-scaffold hooks to run.'));
       }
 
       // Next steps

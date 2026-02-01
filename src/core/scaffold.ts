@@ -15,12 +15,15 @@ import {
   ScaffoldFile,
   ScaffoldResult,
   ScaffoldContext,
-  TemplateType,
+  ExtendedTemplateDefinition,
+  HookDefinition,
 } from '../types';
+import { executeHooks, getHooksForTemplate, HookResult } from './hooks';
+import { loadExtendedConfig } from './config';
 
 // Forward declarations for template functions (implemented in templates/)
-let getTemplateDefinition: (type: TemplateType) => import('../types').TemplateDefinition | undefined;
-let getAvailableTemplates: () => TemplateType[];
+let getTemplateDefinition: (type: string) => import('../types').TemplateDefinition | ExtendedTemplateDefinition | undefined;
+let getAvailableTemplates: () => string[];
 
 /**
  * Initialize template system (called lazily to avoid circular deps)
@@ -34,15 +37,29 @@ async function initTemplates(): Promise<void> {
 }
 
 /**
+ * Extended scaffold options with hook control
+ */
+export interface ExtendedScaffoldOptions extends ScaffoldOptions {
+  skipHooks?: boolean;
+}
+
+/**
+ * Extended scaffold result with hook information
+ */
+export interface ExtendedScaffoldResult extends ScaffoldResult {
+  hooksExecuted?: HookResult[];
+}
+
+/**
  * Generate scaffold files for a curriculum phase
  */
 export async function scaffoldPhase(
   curriculum: Curriculum,
-  options: ScaffoldOptions
-): Promise<ScaffoldResult> {
+  options: ExtendedScaffoldOptions
+): Promise<ExtendedScaffoldResult> {
   await initTemplates();
 
-  const result: ScaffoldResult = {
+  const result: ExtendedScaffoldResult = {
     success: true,
     filesCreated: [],
     filesSkipped: [],
@@ -112,7 +129,62 @@ export async function scaffoldPhase(
     }
   }
 
+  // Execute post-scaffold hooks (if not skipped and not dry-run)
+  if (!options.dryRun && !options.skipHooks && result.success) {
+    const hookResults = await executePostScaffoldHooks(
+      options.templateType,
+      template as ExtendedTemplateDefinition,
+      options.outputDir,
+      options.verbose
+    );
+
+    result.hooksExecuted = hookResults;
+
+    // Check for hook failures
+    for (const hr of hookResults) {
+      if (!hr.success && !hr.skipped && !hr.hook.continueOnError) {
+        result.success = false;
+        result.errors.push(`Hook "${hr.hook.name}" failed: ${hr.error || 'Unknown error'}`);
+      }
+    }
+  }
+
   return result;
+}
+
+/**
+ * Execute post-scaffold hooks for a template
+ */
+async function executePostScaffoldHooks(
+  templateType: string,
+  template: ExtendedTemplateDefinition,
+  outputDir: string,
+  verbose?: boolean
+): Promise<HookResult[]> {
+  // Load config to check for hook overrides
+  let configHooks: Record<string, { enabled: boolean; hooks?: HookDefinition[] }> | undefined;
+
+  try {
+    const config = loadExtendedConfig();
+    configHooks = config.hooks?.defaults;
+  } catch {
+    // Config loading failed - use defaults
+  }
+
+  // Get hooks for this template (considering config overrides)
+  const hooks = getHooksForTemplate(templateType, configHooks);
+
+  // Also check for template-defined hooks
+  if (hooks.length === 0 && template.defaultHooks) {
+    hooks.push(...template.defaultHooks);
+  }
+
+  if (hooks.length === 0) {
+    return [];
+  }
+
+  // Execute hooks
+  return executeHooks(hooks, outputDir, { verbose });
 }
 
 /**
@@ -265,7 +337,7 @@ async function ensureDirectory(dirPath: string): Promise<void> {
 /**
  * Get available template types
  */
-export async function getAvailableTemplateTypes(): Promise<TemplateType[]> {
+export async function getAvailableTemplateTypes(): Promise<string[]> {
   await initTemplates();
   return getAvailableTemplates();
 }
@@ -273,7 +345,7 @@ export async function getAvailableTemplateTypes(): Promise<TemplateType[]> {
 /**
  * Get template definition by type
  */
-export async function getTemplate(type: TemplateType): Promise<import('../types').TemplateDefinition | undefined> {
+export async function getTemplate(type: string): Promise<import('../types').TemplateDefinition | ExtendedTemplateDefinition | undefined> {
   await initTemplates();
   return getTemplateDefinition(type);
 }
