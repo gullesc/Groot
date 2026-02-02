@@ -96,7 +96,12 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | Phase 3 | ✅ Complete | Multi-agent orchestration with Canopy agent |
 | Phase 4 | ✅ Complete | Session management and progress tracking |
 | Phase 5 | ✅ Complete | Project scaffolding with templates |
-| Phase 6 | 🚧 Planned | Extensibility and distribution |
+| Phase 6 | ✅ Complete | Extensibility & Configuration |
+| Phase 7 | ✅ Complete | Interactive Curriculum Generation |
+| Phase 8 | ✅ Complete | Test Generation & UX Improvements |
+| Phase 9 | ✅ Complete | Automated Phase Verification |
+| Phase 10 | ✅ Complete | Solution Generator (Answer Key) |
+| Phase 11 | ✅ Complete | True TDD Workflow |
 
 ## 📋 CLI Commands
 
@@ -111,6 +116,9 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | `groot ask <question>` | Ask the tutor a question |
 | `groot remember <title>` | Capture learning notes |
 | `groot seed` | Scaffold project files for a phase |
+| `groot config` | Manage configuration settings |
+| `groot check` | Verify phase completion via tests |
+| `groot solve` | Generate solution implementations |
 
 ### Command Examples
 
@@ -141,7 +149,37 @@ groot seed                               # Interactive template/phase selection
 groot seed --phase 1 --template typescript  # TypeScript project
 groot seed --phase 2 --template python   # Python project
 groot seed --dry-run                     # Preview without creating files
+
+# Interactive curriculum generation
+groot plant "Machine Learning" --interactive   # Personalized curriculum
+
+# Configuration
+groot config --list                            # Show all settings
+groot config --init                            # Create .grootrc
+
+# Test verification
+groot check                                    # Check current phase
+groot check --phase 1 --update                 # Mark passing deliverables
+
+# Solution generator (answer key)
+groot solve --phase 1                          # Generate all solutions
+groot solve -d "Deliverable" --dry-run         # Preview specific solution
+
+# TDD workflow
+groot seed --phase 1 --template python --tdd   # Generate working tests
+groot solve --source-only --phase 1            # Only generate source code
 ```
+
+### Available Templates
+
+| Template | Description |
+|----------|-------------|
+| `typescript` | Node.js + TypeScript with Jest |
+| `javascript` | Node.js + JavaScript |
+| `python` | Python with pytest |
+| `react` | React + Vite + TypeScript |
+| `vue` | Vue 3 + Vite + TypeScript |
+| `minimal` | Basic structure only |
 
 ## 🛠️ Tech Stack
 
@@ -167,9 +205,17 @@ groot/
 │   │   ├── orchestrator.ts  # Multi-agent coordination
 │   │   ├── journal.ts       # Learning journal
 │   │   ├── beads.ts         # BEADS integration
-│   │   ├── curriculum-output.ts
-│   │   ├── curriculum-beads.ts
+│   │   ├── scaffold.ts      # Project scaffolding
+│   │   ├── hooks.ts         # Post-scaffold hooks
+│   │   ├── test-runner.ts   # Jest/pytest test runner
+│   │   ├── test-generator.ts # Claude-based TDD tests
+│   │   ├── solver.ts        # Solution generator
 │   │   └── config.ts
+│   ├── templates/           # Project templates
+│   │   ├── typescript.ts    # TypeScript + Jest
+│   │   ├── python.ts        # Python + pytest
+│   │   ├── react.ts         # React + Vite
+│   │   └── vue.ts           # Vue 3 + Vite
 │   ├── cli/                 # CLI commands
 │   │   └── index.ts
 │   └── types/               # TypeScript types
@@ -191,6 +237,45 @@ As you progress through a curriculum, you'll move through growth stages:
 | Flowering | 🌸 | Applying knowledge creatively |
 | Seeding | 🌾 | Ready to teach others |
 | Forest | 🌲🌳🌴 | Mastery achieved |
+
+## 🧪 TDD Workflow
+
+GROOT supports true Test-Driven Development:
+
+1. **RED**: `groot seed --tdd` generates working tests that fail initially
+2. **GREEN**: Implement code to make tests pass
+3. **REFACTOR**: Clean up while keeping tests green
+
+```bash
+# Generate project with working tests
+groot seed --phase 1 --template python --tdd
+
+# Run tests (they will fail)
+groot check --phase 1
+
+# Implement your code...
+
+# Verify tests pass
+groot check --phase 1
+
+# Get help if stuck (preserves your tests)
+groot solve --source-only --phase 1
+```
+
+## ⚙️ Configuration
+
+GROOT uses hierarchical configuration:
+
+1. Default settings (built-in)
+2. `~/.groot/config.yaml` (user-level)
+3. `.grootrc` (project-level)
+4. Environment variables (highest priority)
+
+```bash
+groot config --list        # View current config
+groot config --init        # Create project config
+groot config --init-user   # Create user config
+```
 
 ## 🔧 Development
 
