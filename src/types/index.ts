@@ -302,6 +302,7 @@ export interface ScaffoldOptions {
   dryRun: boolean;
   force: boolean;
   verbose: boolean;
+  tdd?: boolean;  // Generate working tests using Claude (true TDD workflow)
 }
 
 export interface ScaffoldFile {

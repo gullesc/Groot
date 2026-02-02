@@ -13,3 +13,5 @@ export * from './session';
 export * from './scaffold';
 export * from './hooks';
 export * from './plugin-discovery';
+export * from './test-runner';
+export * from './solver';

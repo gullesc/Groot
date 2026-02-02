@@ -17,8 +17,9 @@ export const pythonTemplate: TemplateDefinition = {
     const { phase } = context;
     const files: ScaffoldFile[] = [];
 
-    // Create src directory
+    // Create directories
     files.push({ path: 'src', type: 'directory', content: '' });
+    files.push({ path: 'tests', type: 'directory', content: '' });
 
     // Create requirements.txt
     files.push({
@@ -27,16 +28,30 @@ export const pythonTemplate: TemplateDefinition = {
       content: generateRequirements(),
     });
 
-    // Create __init__.py for package
+    // Create pytest.ini
+    files.push({
+      path: 'pytest.ini',
+      type: 'file',
+      content: generatePytestConfig(),
+    });
+
+    // Create __init__.py for packages
     files.push({
       path: 'src/__init__.py',
       type: 'file',
       content: generateInitFile(phase.deliverables),
     });
 
-    // Generate file for each deliverable
+    files.push({
+      path: 'tests/__init__.py',
+      type: 'file',
+      content: '# Test package\n',
+    });
+
+    // Generate source and test files for each deliverable
     for (const deliverable of phase.deliverables) {
       files.push(generateDeliverableFile(deliverable));
+      files.push(generateTestFile(deliverable));
     }
 
     // Create main.py entry point
@@ -55,6 +70,20 @@ function generateRequirements(): string {
 # Add your dependencies here, e.g.:
 # requests>=2.28.0
 # numpy>=1.24.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+`;
+}
+
+function generatePytestConfig(): string {
+  return `[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = -v --tb=short
 `;
 }
 
@@ -128,6 +157,71 @@ def create_${toSnakeCase(deliverable.title)}() -> ${className}:
 
   return {
     path: `src/${fileName}`,
+    type: 'file',
+    content,
+  };
+}
+
+function generateTestFile(deliverable: Deliverable): ScaffoldFile {
+  const moduleName = toSnakeCase(deliverable.title);
+  const className = toPascalCase(deliverable.title);
+  const fileName = `test_${moduleName}.py`;
+
+  // Generate test cases from acceptance criteria (skipped until implemented)
+  const testCases = deliverable.acceptanceCriteria.map((criterion) => {
+    const testName = toSnakeCase(criterion.slice(0, 50));
+    return `    @pytest.mark.skip(reason="TODO: Implement test")
+    def test_${testName}(self, instance):
+        """Test: ${criterion}"""
+        # TODO: Implement test for: ${criterion}
+        pass`;
+  }).join('\n\n');
+
+  const content = `"""
+Tests for ${deliverable.title}
+
+Run: pytest
+Watch: pytest-watch (install with: pip install pytest-watch)
+Coverage: pytest --cov=src
+"""
+
+import pytest
+from src.${moduleName} import ${className}, create_${moduleName}
+
+
+class Test${className}:
+    """Test suite for ${className}."""
+
+    @pytest.fixture
+    def instance(self):
+        """Create a fresh instance for each test."""
+        return create_${moduleName}()
+
+    def test_create_instance(self, instance):
+        """Test that we can create an instance."""
+        assert instance is not None
+        assert isinstance(instance, ${className})
+
+    def test_execute_not_implemented(self, instance):
+        """Test that execute raises NotImplementedError before implementation."""
+        # TODO: Update this test once execute() is implemented
+        with pytest.raises(NotImplementedError):
+            instance.execute()
+
+
+class TestAcceptanceCriteria:
+    """Tests for acceptance criteria."""
+
+    @pytest.fixture
+    def instance(self):
+        """Create a fresh instance for each test."""
+        return create_${moduleName}()
+
+${testCases}
+`;
+
+  return {
+    path: `tests/${fileName}`,
     type: 'file',
     content,
   };

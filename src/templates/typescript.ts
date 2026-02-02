@@ -17,14 +17,22 @@ export const typescriptTemplate: TemplateDefinition = {
     const { phase } = context;
     const files: ScaffoldFile[] = [];
 
-    // Create src directory
+    // Create directories
     files.push({ path: 'src', type: 'directory', content: '' });
+    files.push({ path: 'tests', type: 'directory', content: '' });
 
     // Create tsconfig.json
     files.push({
       path: 'tsconfig.json',
       type: 'file',
       content: generateTsConfig(),
+    });
+
+    // Create jest.config.js
+    files.push({
+      path: 'jest.config.js',
+      type: 'file',
+      content: generateJestConfig(),
     });
 
     // Create package.json
@@ -34,9 +42,10 @@ export const typescriptTemplate: TemplateDefinition = {
       content: generatePackageJson(context),
     });
 
-    // Generate file for each deliverable
+    // Generate source and test files for each deliverable
     for (const deliverable of phase.deliverables) {
       files.push(generateDeliverableFile(deliverable));
+      files.push(generateTestFile(deliverable));
     }
 
     // Create index.ts that exports all deliverables
@@ -69,6 +78,30 @@ function generateTsConfig(): string {
   }, null, 2);
 }
 
+function generateJestConfig(): string {
+  return `/** @type {import('jest').Config} */
+export default {
+  preset: 'ts-jest/presets/default-esm',
+  testEnvironment: 'node',
+  extensionsToTreatAsEsm: ['.ts'],
+  moduleNameMapper: {
+    '^(\\\\.{1,2}/.*)\\\\.js$': '$1',
+  },
+  transform: {
+    '^.+\\\\.tsx?$': [
+      'ts-jest',
+      {
+        useESM: true,
+      },
+    ],
+  },
+  testMatch: ['**/tests/**/*.test.ts'],
+  collectCoverageFrom: ['src/**/*.ts'],
+  coverageDirectory: 'coverage',
+};
+`;
+}
+
 function generatePackageJson(context: ScaffoldContext): string {
   const { curriculum, phase } = context;
   const name = curriculum.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -83,9 +116,18 @@ function generatePackageJson(context: ScaffoldContext): string {
       build: 'tsc',
       start: 'node dist/index.js',
       dev: 'tsc --watch',
+      test: 'node --experimental-vm-modules node_modules/jest/bin/jest.js',
+      'test:watch': 'node --experimental-vm-modules node_modules/jest/bin/jest.js --watch',
+      'test:coverage': 'node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage',
     },
     keywords: curriculum.metadata.tags,
     license: 'MIT',
+    devDependencies: {
+      '@types/jest': '^29.5.0',
+      'jest': '^29.7.0',
+      'ts-jest': '^29.2.0',
+      'typescript': '^5.0.0',
+    },
   }, null, 2);
 }
 
@@ -132,6 +174,61 @@ export function create${className}(): ${className} {
 
   return {
     path: `src/${fileName}`,
+    type: 'file',
+    content,
+  };
+}
+
+function generateTestFile(deliverable: Deliverable): ScaffoldFile {
+  const fileName = generateFileName(deliverable.title, '.test.ts');
+  const sourceFileName = generateFileName(deliverable.title, '');
+  const className = toPascalCase(deliverable.title);
+
+  // Generate test cases from acceptance criteria (skipped until implemented)
+  const testCases = deliverable.acceptanceCriteria.map((criterion) => {
+    return `  it.skip('should ${criterion.toLowerCase()}', () => {
+    // TODO: Implement test for: ${criterion}
+  });`;
+  }).join('\n\n');
+
+  const content = `/**
+ * Tests for ${deliverable.title}
+ *
+ * Run: npm test
+ * Watch: npm run test:watch
+ * Coverage: npm run test:coverage
+ */
+
+import { ${className}, create${className} } from '../src/${sourceFileName}.js';
+
+describe('${className}', () => {
+  let instance: ${className};
+
+  beforeEach(() => {
+    instance = create${className}();
+  });
+
+  describe('initialization', () => {
+    it('should create an instance', () => {
+      expect(instance).toBeInstanceOf(${className});
+    });
+  });
+
+  describe('acceptance criteria', () => {
+${testCases}
+  });
+
+  describe('execute()', () => {
+    it('should complete without errors when implemented', () => {
+      // TODO: Update this test once execute() is implemented
+      expect(() => instance.execute()).toThrow('Not implemented');
+    });
+  });
+});
+`;
+
+  return {
+    path: `tests/${fileName}`,
     type: 'file',
     content,
   };

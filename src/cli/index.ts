@@ -17,6 +17,7 @@ import 'dotenv/config';
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import ora from 'ora';
 import {
   loadConfig,
   validateConfig,
@@ -78,6 +79,18 @@ import {
   getAvailableTemplateTypes,
   getTemplate,
 } from '../core/scaffold';
+import {
+  runPhaseTests,
+  detectProjectType,
+} from '../core/test-runner';
+import {
+  solveDeliverable,
+  solvePhase,
+} from '../core/solver';
+import { readFileSync } from 'fs';
+
+// Get version from package.json (CommonJS has __dirname)
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8')) as { version: string };
 
 const program = new Command();
 
@@ -90,7 +103,7 @@ const LOGO = `
 program
   .name('groot')
   .description('AI-powered learning curriculum generator')
-  .version('0.1.0');
+  .version(packageJson.version);
 
 // ============================================================================
 // groot init - Initialize GROOT in current directory
@@ -479,7 +492,20 @@ Call the generate_curriculum_structure tool NOW with the complete curriculum inc
       const { createSeedlingAgent } = await import('../agents/seedling');
       const seedling = createSeedlingAgent(config.anthropicApiKey!);
 
-      const response = await seedling.chat(prompt);
+      // Show spinner while generating curriculum
+      const spinner = ora({
+        text: 'Designing curriculum structure...',
+        spinner: 'dots',
+      }).start();
+
+      let response;
+      try {
+        response = await seedling.chat(prompt);
+        spinner.succeed('Curriculum generated!');
+      } catch (error) {
+        spinner.fail('Failed to generate curriculum');
+        throw error;
+      }
 
       // Extract curriculum from tool call
       if (response.toolCalls && response.toolCalls.length > 0) {
@@ -1406,6 +1432,7 @@ program
   .option('-v, --verbose', 'Show detailed output')
   .option('--no-hooks', 'Skip post-scaffold hooks (e.g., npm install)')
   .option('--list-templates', 'List all available templates')
+  .option('--tdd', 'TDD mode: Generate working tests using Claude (tests fail until you implement)')
   .action(async (options) => {
     // List templates mode
     if (options.listTemplates) {
@@ -1513,6 +1540,9 @@ program
       console.log(chalk.white(`   Template: ${template.displayName}`));
       console.log(chalk.white(`   Output: ${options.output}`));
       console.log(chalk.white(`   Deliverables: ${phase.deliverables.length}`));
+      if (options.tdd) {
+        console.log(chalk.yellow(`   Mode: TDD (Claude will generate working tests)`));
+      }
 
       if (options.dryRun) {
         console.log(chalk.yellow('\n   [DRY RUN - No files will be created]\n'));
@@ -1540,6 +1570,7 @@ program
         force: options.force || false,
         verbose: options.verbose || false,
         skipHooks: options.hooks === false,  // Commander sets this to false when --no-hooks is used
+        tdd: options.tdd || false,  // TDD mode: generate working tests with Claude
       });
 
       // Display results
@@ -1573,17 +1604,462 @@ program
         console.log(chalk.gray('\n   No post-scaffold hooks to run.'));
       }
 
-      // Next steps
+      // Next steps with template-specific walkthrough
       if (result.success && !options.dryRun) {
-        console.log(chalk.cyan('\n🌱 Next steps:'));
-        console.log(chalk.gray('   1. Review generated files'));
-        console.log(chalk.gray(`   2. Run: groot wake --phase ${selectedPhase}`));
-        console.log(chalk.gray('   3. Implement the deliverables'));
-        console.log(chalk.gray('   4. Use: groot ask <question> for help'));
+        console.log(chalk.cyan('\n🌱 Project Walkthrough:'));
+        console.log(chalk.white('\n   What was created:'));
+
+        // Count file types
+        const srcFiles = result.filesCreated.filter(f => f.includes('/src/') || f.startsWith('src/'));
+        const testFiles = result.filesCreated.filter(f => f.includes('/tests/') || f.startsWith('tests/'));
+        const configFiles = result.filesCreated.filter(f =>
+          f.endsWith('.json') || f.endsWith('.ini') || f.endsWith('.js') && !f.includes('/src/')
+        );
+
+        console.log(chalk.gray(`   • ${srcFiles.length} source file(s) in src/`));
+        if (testFiles.length > 0) {
+          console.log(chalk.gray(`   • ${testFiles.length} test file(s) in tests/`));
+          if (options.tdd && result.testsGenerated) {
+            console.log(chalk.yellow(`     ↳ TDD mode: ${result.testsGenerated.length} tests generated with Claude`));
+          }
+        }
+        console.log(chalk.gray(`   • ${configFiles.length} config file(s)`));
+
+        // Template-specific instructions
+        console.log(chalk.white('\n   Getting started:'));
+
+        if (templateType === 'typescript' || templateType === 'javascript') {
+          console.log(chalk.cyan('   $ npm install'));
+          console.log(chalk.gray('     Install dependencies'));
+          console.log(chalk.cyan('   $ npm test'));
+          console.log(chalk.gray('     Run tests (will fail until you implement)'));
+          console.log(chalk.cyan('   $ npm run build'));
+          console.log(chalk.gray('     Compile TypeScript'));
+          console.log(chalk.cyan('   $ npm start'));
+          console.log(chalk.gray('     Run the compiled code'));
+        } else if (templateType === 'python') {
+          console.log(chalk.cyan('   $ pip install -r requirements.txt'));
+          console.log(chalk.gray('     Install dependencies'));
+          console.log(chalk.cyan('   $ pytest'));
+          console.log(chalk.gray('     Run tests (will fail until you implement)'));
+          console.log(chalk.cyan('   $ pytest --cov=src'));
+          console.log(chalk.gray('     Run tests with coverage'));
+          console.log(chalk.cyan('   $ python main.py'));
+          console.log(chalk.gray('     Run the main script'));
+        } else if (templateType === 'react' || templateType === 'vue') {
+          console.log(chalk.cyan('   $ npm install'));
+          console.log(chalk.gray('     Install dependencies'));
+          console.log(chalk.cyan('   $ npm run dev'));
+          console.log(chalk.gray('     Start development server'));
+          console.log(chalk.cyan('   $ npm run build'));
+          console.log(chalk.gray('     Build for production'));
+        }
+
+        // Show deliverables to implement
+        console.log(chalk.white('\n   Deliverables to implement:'));
+        for (const del of phase.deliverables) {
+          console.log(chalk.yellow(`   □ ${del.title}`));
+          console.log(chalk.gray(`     ${del.description.slice(0, 80)}${del.description.length > 80 ? '...' : ''}`));
+        }
+
+        console.log(chalk.white('\n   Learning workflow:'));
+        if (options.tdd) {
+          console.log(chalk.yellow('   TDD Mode - Red → Green → Refactor:'));
+          console.log(chalk.gray(`   1. ${chalk.cyan('groot check')} - Run tests (they will fail - RED)`));
+          console.log(chalk.gray(`   2. Implement the code to make tests pass`));
+          console.log(chalk.gray(`   3. ${chalk.cyan('groot check')} - Verify tests pass (GREEN)`));
+          console.log(chalk.gray(`   4. Refactor if needed, keeping tests passing`));
+          console.log(chalk.gray(`   5. ${chalk.cyan('groot solve --source-only')} - Get help if stuck`));
+        } else {
+          console.log(chalk.gray(`   1. ${chalk.cyan(`groot wake --phase ${selectedPhase}`)} - Start learning session`));
+          console.log(chalk.gray(`   2. Review the generated code and TODOs`));
+          console.log(chalk.gray(`   3. ${chalk.cyan('groot ask "question"')} - Ask tutor for help`));
+          console.log(chalk.gray(`   4. Implement until tests pass`));
+          console.log(chalk.gray(`   5. ${chalk.cyan('groot remember "insight"')} - Save learnings`));
+          console.log(chalk.gray(`   6. ${chalk.cyan('groot rest')} - End session when done`));
+        }
       }
 
     } catch (error) {
       console.error(chalk.red('Error scaffolding project:'), error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
+// groot check - Run tests and verify phase completion
+// ============================================================================
+program
+  .command('check')
+  .description('Check - run tests and verify phase completion')
+  .option('-p, --phase <number>', 'Phase number to check')
+  .option('-v, --verbose', 'Show detailed test output')
+  .option('--update', 'Update curriculum with completion status')
+  .action(async (options) => {
+    console.log(LOGO);
+    console.log(chalk.green(`\n🧪 GROOT - Check Phase Completion\n`));
+
+    try {
+      // Check prerequisites
+      if (!isGrootInitialized() || !hasCurriculum()) {
+        console.log(chalk.yellow('No curriculum found in this project.'));
+        console.log(chalk.gray('Generate one with: groot plant "your topic"'));
+        process.exit(1);
+      }
+
+      // Load curriculum
+      const curriculum = await getCurrentCurriculum();
+      if (!curriculum) {
+        console.error(chalk.red('Failed to load curriculum'));
+        process.exit(1);
+      }
+
+      // Detect project type
+      const projectType = detectProjectType('./');
+      if (projectType === 'unknown') {
+        console.log(chalk.yellow('Could not detect project type.'));
+        console.log(chalk.gray('Make sure you have run "groot seed" first.'));
+        process.exit(1);
+      }
+
+      console.log(chalk.gray(`Detected project type: ${projectType}`));
+
+      // Select phase
+      let selectedPhase: number;
+
+      if (options.phase) {
+        selectedPhase = parseInt(options.phase, 10);
+      } else {
+        // Show phase selection
+        const phaseChoices = curriculum.phases.map(p => ({
+          value: p.number,
+          name: `Phase ${p.number}: ${p.title} (${p.deliverables.length} deliverables)`,
+        }));
+
+        selectedPhase = await select({
+          message: 'Select a phase to check:',
+          choices: phaseChoices,
+        });
+      }
+
+      const phase = curriculum.phases.find(p => p.number === selectedPhase);
+      if (!phase) {
+        console.error(chalk.red(`Phase ${selectedPhase} not found`));
+        process.exit(1);
+      }
+
+      console.log(chalk.cyan(`\nChecking Phase ${phase.number}: ${phase.title}`));
+      console.log(chalk.gray(`Running tests for ${phase.deliverables.length} deliverables...\n`));
+
+      // Run tests with spinner
+      const spinner = ora({
+        text: 'Running tests...',
+        spinner: 'dots',
+      }).start();
+
+      const results = await runPhaseTests(phase, './', { verbose: options.verbose });
+
+      if (results.error) {
+        spinner.fail('Test run failed');
+        console.error(chalk.red(`\n${results.error}`));
+        process.exit(1);
+      }
+
+      spinner.stop();
+
+      // Display results
+      console.log(chalk.white('Test Results:\n'));
+
+      for (const result of results.results) {
+        const icon = result.passed ? chalk.green('✅') : chalk.red('❌');
+        let status: string;
+        if (result.totalTests === 0) {
+          // No tests found - likely import/collection error
+          status = chalk.yellow('tests failed to load (check imports)');
+        } else if (result.passed) {
+          status = chalk.green(`${result.passedTests}/${result.totalTests} passed`);
+        } else if (result.skippedTests > 0 && result.failedTests === 0) {
+          status = chalk.yellow(`${result.skippedTests} skipped (not implemented)`);
+        } else {
+          status = chalk.red(`${result.failedTests}/${result.totalTests} failed`);
+        }
+
+        console.log(`${icon} ${chalk.white(result.deliverableTitle)} - ${status}`);
+
+        if (!result.passed && result.failedTestNames.length > 0) {
+          for (const failedTest of result.failedTestNames.slice(0, 3)) {
+            console.log(chalk.gray(`   └─ ${failedTest}`));
+          }
+          if (result.failedTestNames.length > 3) {
+            console.log(chalk.gray(`   └─ ... and ${result.failedTestNames.length - 3} more`));
+          }
+        }
+      }
+
+      // Summary
+      const completionPercent = Math.round((results.completedDeliverables / results.totalDeliverables) * 100);
+      console.log(chalk.white('\n─────────────────────────────────────'));
+      console.log(chalk.white(`Phase ${phase.number} Progress: `) +
+        (results.success
+          ? chalk.green(`${results.completedDeliverables}/${results.totalDeliverables} deliverables complete (${completionPercent}%) ✅`)
+          : chalk.yellow(`${results.completedDeliverables}/${results.totalDeliverables} deliverables complete (${completionPercent}%)`)));
+
+      // Update curriculum if requested
+      if (options.update) {
+        let updated = false;
+
+        for (const result of results.results) {
+          if (result.passed && result.deliverableId) {
+            const deliverable = phase.deliverables.find(d => d.id === result.deliverableId);
+            if (deliverable && !deliverable.completed) {
+              deliverable.completed = true;
+              updated = true;
+            }
+          }
+        }
+
+        // Update phase status if all deliverables complete
+        if (results.success && phase.status !== 'completed') {
+          phase.status = 'completed';
+
+          // Unlock next phase
+          const nextPhase = curriculum.phases.find(p => p.number === phase.number + 1);
+          if (nextPhase && nextPhase.status === 'locked') {
+            nextPhase.status = 'available';
+          }
+
+          updated = true;
+        }
+
+        if (updated) {
+          await saveCurriculum(curriculum);
+          console.log(chalk.green('\n✅ Curriculum updated with completion status'));
+        }
+      }
+
+      // Next steps
+      if (!results.success) {
+        console.log(chalk.cyan('\n🌱 Next steps:'));
+        console.log(chalk.gray('   1. Review the failing tests'));
+        console.log(chalk.gray('   2. Implement the missing functionality'));
+        console.log(chalk.gray('   3. Run "groot check" again to verify'));
+        console.log(chalk.gray(`   4. Use "groot ask 'how do I...'" for help`));
+      } else {
+        console.log(chalk.green('\n🎉 All tests passing! Phase complete.'));
+        if (!options.update) {
+          console.log(chalk.gray('   Run "groot check --update" to mark deliverables complete'));
+        }
+        const nextPhase = curriculum.phases.find(p => p.number === phase.number + 1);
+        if (nextPhase) {
+          console.log(chalk.gray(`   Ready for Phase ${nextPhase.number}: ${nextPhase.title}`));
+        }
+      }
+
+      // Show verbose output if requested
+      if (options.verbose && results.rawOutput) {
+        console.log(chalk.gray('\n─── Raw Test Output ───────────────────'));
+        console.log(chalk.gray(results.rawOutput.slice(0, 2000)));
+        if (results.rawOutput.length > 2000) {
+          console.log(chalk.gray('... (truncated)'));
+        }
+      }
+
+    } catch (error) {
+      console.error(chalk.red('Error running tests:'), error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
+// groot solve - Generate solutions for stuck learners
+// ============================================================================
+program
+  .command('solve')
+  .description('Solve - generate working implementations when stuck')
+  .option('-p, --phase <number>', 'Phase number to solve')
+  .option('-d, --deliverable <title>', 'Specific deliverable to solve')
+  .option('--tests-only', 'Only generate test implementations, not source code')
+  .option('--source-only', 'Only generate source code (TDD mode - tests already exist)')
+  .option('--dry-run', 'Preview what would be generated without writing files')
+  .option('-v, --verbose', 'Show detailed output')
+  .action(async (options) => {
+    console.log(LOGO);
+    console.log(chalk.green(`\n🔑 GROOT - Solution Generator\n`));
+
+    try {
+      // Check prerequisites
+      if (!isGrootInitialized() || !hasCurriculum()) {
+        console.log(chalk.yellow('No curriculum found in this project.'));
+        console.log(chalk.gray('Generate one with: groot plant "your topic"'));
+        process.exit(1);
+      }
+
+      // Load curriculum
+      const curriculum = await getCurrentCurriculum();
+      if (!curriculum) {
+        console.error(chalk.red('Failed to load curriculum'));
+        process.exit(1);
+      }
+
+      // Detect project type
+      const projectType = detectProjectType('./');
+      if (projectType === 'unknown') {
+        console.log(chalk.yellow('Could not detect project type.'));
+        console.log(chalk.gray('Make sure you have run "groot seed" first.'));
+        process.exit(1);
+      }
+
+      console.log(chalk.gray(`Detected project type: ${projectType}`));
+
+      // Select phase
+      let selectedPhase: number;
+
+      if (options.phase) {
+        selectedPhase = parseInt(options.phase, 10);
+      } else {
+        // Show phase selection
+        const phaseChoices = curriculum.phases.map(p => ({
+          value: p.number,
+          name: `Phase ${p.number}: ${p.title} (${p.deliverables.length} deliverables)`,
+        }));
+
+        selectedPhase = await select({
+          message: 'Select a phase to solve:',
+          choices: phaseChoices,
+        });
+      }
+
+      const phase = curriculum.phases.find(p => p.number === selectedPhase);
+      if (!phase) {
+        console.error(chalk.red(`Phase ${selectedPhase} not found`));
+        process.exit(1);
+      }
+
+      // If specific deliverable requested
+      if (options.deliverable) {
+        const deliverable = phase.deliverables.find(
+          d => d.title.toLowerCase().includes(options.deliverable.toLowerCase())
+        );
+
+        if (!deliverable) {
+          console.error(chalk.red(`Deliverable "${options.deliverable}" not found in Phase ${selectedPhase}`));
+          console.log(chalk.gray('\nAvailable deliverables:'));
+          phase.deliverables.forEach(d => {
+            console.log(chalk.gray(`  - ${d.title}`));
+          });
+          process.exit(1);
+        }
+
+        console.log(chalk.cyan(`\nGenerating solution for: ${deliverable.title}`));
+
+        if (options.dryRun) {
+          console.log(chalk.yellow('[DRY RUN - No files will be written]\n'));
+        }
+
+        const spinner = ora({
+          text: 'Generating implementation...',
+          spinner: 'dots',
+        }).start();
+
+        const result = await solveDeliverable(deliverable, phase, {
+          outputDir: './',
+          testsOnly: options.testsOnly,
+          sourceOnly: options.sourceOnly,
+          dryRun: options.dryRun,
+          verbose: options.verbose,
+        });
+
+        if (result.error) {
+          spinner.fail('Generation failed');
+          console.error(chalk.red(`\n${result.error}`));
+          process.exit(1);
+        }
+
+        spinner.succeed('Solution generated!');
+
+        // Display results
+        console.log(chalk.white('\nGenerated files:'));
+        if (result.sourceGenerated && result.sourceFile) {
+          console.log(chalk.green(`  ✅ ${result.sourceFile}`));
+        }
+        if (result.testsGenerated && result.testFile) {
+          console.log(chalk.green(`  ✅ ${result.testFile}`));
+        }
+
+      } else {
+        // Solve entire phase
+        console.log(chalk.cyan(`\nGenerating solutions for Phase ${phase.number}: ${phase.title}`));
+        console.log(chalk.gray(`${phase.deliverables.length} deliverables to solve\n`));
+
+        if (options.dryRun) {
+          console.log(chalk.yellow('[DRY RUN - No files will be written]\n'));
+        }
+
+        // Confirm before proceeding
+        if (!options.dryRun) {
+          const proceed = await confirm({
+            message: `Generate solutions for all ${phase.deliverables.length} deliverables?`,
+            default: false,
+          });
+
+          if (!proceed) {
+            console.log(chalk.gray('\nCancelled.'));
+            return;
+          }
+        }
+
+        const spinner = ora({
+          text: 'Generating implementations...',
+          spinner: 'dots',
+        }).start();
+
+        const results = await solvePhase(phase, {
+          outputDir: './',
+          testsOnly: options.testsOnly,
+          sourceOnly: options.sourceOnly,
+          dryRun: options.dryRun,
+          verbose: options.verbose,
+        });
+
+        spinner.stop();
+
+        // Display results
+        console.log(chalk.white('Results:\n'));
+
+        for (const result of results.results) {
+          if (result.error) {
+            console.log(chalk.red(`❌ ${result.deliverableTitle}`));
+            console.log(chalk.gray(`   Error: ${result.error}`));
+          } else {
+            console.log(chalk.green(`✅ ${result.deliverableTitle}`));
+            if (result.sourceGenerated) {
+              console.log(chalk.gray(`   └─ ${result.sourceFile}`));
+            }
+            if (result.testsGenerated) {
+              console.log(chalk.gray(`   └─ ${result.testFile}`));
+            }
+          }
+        }
+
+        // Summary
+        const successCount = results.results.filter(r => !r.error).length;
+        console.log(chalk.white('\n─────────────────────────────────────'));
+        console.log(chalk.white(`Generated: ${successCount}/${results.results.length} deliverables`));
+      }
+
+      // Next steps
+      console.log(chalk.cyan('\n📚 Learning Tips:'));
+      console.log(chalk.gray('   1. Review the generated code to understand the implementation'));
+      console.log(chalk.gray('   2. Run tests with "groot check" to verify'));
+      console.log(chalk.gray('   3. Try implementing similar features on your own'));
+      console.log(chalk.gray('   4. Use "groot ask" if you have questions about the code'));
+
+      if (!options.testsOnly) {
+        console.log(chalk.yellow('\n⚠️  Note: Solutions are marked as "completed with assistance"'));
+      }
+
+    } catch (error) {
+      console.error(chalk.red('Error generating solutions:'), error);
       process.exit(1);
     }
   });

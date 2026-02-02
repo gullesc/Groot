@@ -20,6 +20,7 @@ import {
 } from '../types';
 import { executeHooks, getHooksForTemplate, HookResult } from './hooks';
 import { loadExtendedConfig } from './config';
+import { generateTestsForPhase, GeneratedTest } from './test-generator';
 
 // Forward declarations for template functions (implemented in templates/)
 let getTemplateDefinition: (type: string) => import('../types').TemplateDefinition | ExtendedTemplateDefinition | undefined;
@@ -48,6 +49,7 @@ export interface ExtendedScaffoldOptions extends ScaffoldOptions {
  */
 export interface ExtendedScaffoldResult extends ScaffoldResult {
   hooksExecuted?: HookResult[];
+  testsGenerated?: GeneratedTest[];  // TDD mode: Claude-generated tests
 }
 
 /**
@@ -96,6 +98,40 @@ export async function scaffoldPhase(
   // Add common files (README, OBJECTIVES)
   files.push(...generateCommonFiles(context));
 
+  // TDD Mode: Generate working tests using Claude instead of template stubs
+  let generatedTests: GeneratedTest[] | undefined;
+  if (options.tdd && !options.dryRun) {
+    const language = getLanguageForTemplate(options.templateType);
+    if (language) {
+      if (options.verbose) {
+        console.log('TDD Mode: Generating working tests using Claude...');
+      }
+      try {
+        generatedTests = await generateTestsForPhase(phase, language);
+
+        // Replace template test files with Claude-generated tests
+        for (const genTest of generatedTests) {
+          const testFileName = language === 'python'
+            ? `tests/test_${toSnakeCase(genTest.deliverableTitle)}.py`
+            : `tests/${generateFileName(genTest.deliverableTitle, '.test.ts')}`;
+
+          // Find and replace the test file in files array
+          const testFileIndex = files.findIndex(f => f.path === testFileName);
+          if (testFileIndex !== -1) {
+            files[testFileIndex]!.content = genTest.testCode;
+          }
+        }
+
+        if (options.verbose) {
+          console.log(`Generated ${generatedTests.length} test files with Claude`);
+        }
+      } catch (error) {
+        // If TDD test generation fails, fall back to template tests
+        console.warn(`TDD test generation failed: ${error}. Using template tests.`);
+      }
+    }
+  }
+
   // Process each file
   for (const file of files) {
     const fullPath = join(options.outputDir, file.path);
@@ -127,6 +163,11 @@ export async function scaffoldPhase(
       result.errors.push(`Failed to create ${fullPath}: ${error}`);
       result.success = false;
     }
+  }
+
+  // Store TDD generated tests in result
+  if (generatedTests) {
+    result.testsGenerated = generatedTests;
   }
 
   // Execute post-scaffold hooks (if not skipped and not dry-run)
@@ -361,4 +402,21 @@ export function validateScaffoldOptions(options: Partial<ScaffoldOptions>): stri
   }
 
   return errors;
+}
+
+/**
+ * Get language for a template type (for TDD test generation)
+ */
+function getLanguageForTemplate(templateType: string): 'typescript' | 'python' | null {
+  switch (templateType) {
+    case 'typescript':
+    case 'javascript':
+    case 'react':
+    case 'vue':
+      return 'typescript';
+    case 'python':
+      return 'python';
+    default:
+      return null;
+  }
 }

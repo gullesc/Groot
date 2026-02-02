@@ -1,8 +1,8 @@
-# Session Handoff - February 1, 2026
+# Session Handoff - February 2, 2026
 
 ## Session Summary
 
-Tonight we completed **Phase 6: Extensibility & Configuration** and **Phase 7: Interactive Curriculum Generation**.
+Tonight we completed **Phase 11: True TDD Workflow** - enabling test-driven development where tests are generated first using Claude, and students implement code to make them pass.
 
 ### Accomplishments
 
@@ -24,10 +24,67 @@ Tonight we completed **Phase 6: Extensibility & Configuration** and **Phase 7: I
      - Focus areas (hands-on, theory, portfolio, etc.)
    - Tailors curriculum based on learner profile
 
-3. **Bug Fixes**
+3. **Phase 8: Test Generation & UX Improvements**
+   - **Test file generation** for TypeScript and Python templates
+     - Jest tests for TypeScript (with config)
+     - Pytest tests for Python (with pytest.ini)
+     - Tests auto-generated from acceptance criteria
+   - **Loading spinner** during curriculum generation (`ora`)
+   - **Post-scaffold walkthrough** showing:
+     - What was created (src files, test files, config)
+     - Template-specific commands (npm test, pytest, etc.)
+     - Deliverables to implement
+     - Learning workflow steps
+
+4. **Phase 9: Automated Phase Verification**
+   - **`groot check` command** for test-based phase completion
+     - Runs tests (Jest or Pytest) based on project type
+     - Maps test results to deliverables
+     - Shows pass/fail status per deliverable
+     - `--update` flag to mark completed deliverables in curriculum
+   - **Test runner module** (`src/core/test-runner.ts`)
+     - Auto-detects project type (TypeScript/Python)
+     - Parses Jest JSON and text output
+     - Parses Pytest verbose output
+     - Maps results to deliverables by naming convention
+
+5. **Phase 10: Solution Generator (Answer Key)**
+   - **`groot solve` command** for generating working implementations
+     - Uses Claude API to generate source code and tests
+     - Acts as an "answer key" when students get stuck
+     - `--phase` to solve all deliverables in a phase
+     - `--deliverable` to solve a specific deliverable
+     - `--tests-only` to only generate test implementations
+     - `--dry-run` to preview without writing files
+   - **Solver module** (`src/core/solver.ts`)
+     - Reads existing stub code and generates working implementations
+     - Creates implementations that pass acceptance criteria
+     - Educational focus - code includes helpful comments
+   - **Improved test stub UX**
+     - TypeScript tests now use `it.skip()` instead of failing assertions
+     - Python tests now use `@pytest.mark.skip` instead of `assert False`
+     - Cleaner test output during demos (skipped vs failed)
+
+6. **Bug Fixes**
    - Fixed curriculum generation (phases array validation)
    - Improved error handling in Seedling agent
    - Increased max_tokens for complex tool outputs
+
+7. **Phase 11: True TDD Workflow**
+   - **`groot seed --tdd` flag** for test-driven development
+     - Generates working tests using Claude (not stub tests)
+     - Tests FAIL initially (RED) until student implements code
+     - Tests PASS (GREEN) after correct implementation
+   - **`groot solve --source-only` flag** for TDD mode
+     - Only generates source code, preserves existing tests
+     - Allows students to get help without losing their test definitions
+   - **New test generator module** (`src/core/test-generator.ts`)
+     - Uses Claude to generate meaningful tests from acceptance criteria
+     - Supports both TypeScript (Jest) and Python (pytest)
+     - Tests verify actual behavior, not just structure
+   - **TDD workflow guidance** in CLI output
+     - Shows Red → Green → Refactor steps after scaffold
+     - Template-specific test commands
 
 ### What's Working
 
@@ -57,6 +114,26 @@ groot config --list                # Show all config
 groot config --get llm.model       # Get specific value
 groot config --init                # Create project .grootrc
 groot config --init-user           # Create ~/.groot/config.yaml
+
+# Test-based phase verification
+groot check                        # Check current phase
+groot check --phase 1              # Check specific phase
+groot check --update               # Mark passing deliverables complete
+groot check --verbose              # Show full test output
+
+# Solution generator (answer key)
+groot solve --phase 1              # Generate solutions for all deliverables
+groot solve -d "Deliverable Name"  # Solve specific deliverable
+groot solve --tests-only           # Only generate test implementations
+groot solve --source-only          # Only generate source (TDD mode)
+groot solve --dry-run              # Preview without writing files
+
+# TDD workflow (NEW!)
+groot seed --phase 1 --template python --tdd   # Scaffold with working tests
+groot check --phase 1                          # Tests fail (RED)
+# ... student implements code ...
+groot check --phase 1                          # Tests pass (GREEN)
+groot solve --source-only --phase 1            # Get help if stuck
 ```
 
 ### Completed Phases
@@ -68,6 +145,10 @@ groot config --init-user           # Create ~/.groot/config.yaml
 - ✅ **Phase 5**: Project scaffolding with templates
 - ✅ **Phase 6**: Extensibility & Configuration
 - ✅ **Phase 7**: Interactive Curriculum Generation
+- ✅ **Phase 8**: Test Generation & UX Improvements
+- ✅ **Phase 9**: Automated Phase Verification
+- ✅ **Phase 10**: Solution Generator (Answer Key)
+- ✅ **Phase 11**: True TDD Workflow
 
 ### Project Architecture
 
@@ -100,14 +181,21 @@ src/
 
 | File | Changes |
 |------|---------|
-| `src/cli/index.ts` | Added `--interactive` flag, `gatherCurriculumPreferences()`, `buildPersonalizedPrompt()` |
+| `src/cli/index.ts` | Added `--interactive` flag, spinner, post-scaffold walkthrough, `groot check`, `groot solve` |
+| `src/core/test-runner.ts` | NEW - Test runner for Jest/Pytest with deliverable mapping |
+| `src/core/solver.ts` | NEW - Solution generator using Claude API |
 | `src/agents/seedling.ts` | Added defensive checks, debug logging, validation |
 | `src/agents/base.ts` | Increased max_tokens to 8192 |
 | `src/core/config.ts` | YAML hierarchical loading, `loadExtendedConfig()` |
 | `src/core/hooks.ts` | NEW - Post-scaffold hook execution |
 | `src/core/plugin-discovery.ts` | NEW - Custom template discovery |
+| `src/templates/typescript.ts` | Added Jest config, test file generation, `it.skip()` for stubs |
+| `src/templates/python.ts` | Added pytest config, test file generation, `@pytest.mark.skip` for stubs |
 | `src/templates/react.ts` | NEW - React + Vite template |
 | `src/templates/vue.ts` | NEW - Vue 3 + Vite template |
+| `src/core/test-generator.ts` | NEW - Claude-based test generation for TDD |
+| `src/core/scaffold.ts` | Added TDD mode integration |
+| `src/core/solver.ts` | Added `--source-only` option for TDD |
 
 ### Project State
 
@@ -145,20 +233,37 @@ For stakeholder demos, use:
 3. `groot status`
 4. `groot seed --list-templates`
 5. `groot seed --phase 1 --template python`
-6. `groot wake --phase 1`
-7. `groot ask "question"`
-8. `groot remember "note" -c "content"`
-9. `groot rest`
-10. `groot config --list`
+6. `groot check --phase 1` (shows test-based verification - tests are skipped!)
+7. `groot solve --phase 1 --dry-run` (preview answer key generation!)
+8. `groot solve --phase 1` (generate working implementations!)
+9. `groot check --phase 1` (now tests pass!)
+10. `groot wake --phase 1`
+11. `groot ask "question"`
+12. `groot remember "note" -c "content"`
+13. `groot rest`
+14. `groot check --update` (mark completed deliverables!)
+15. `groot config --list`
 
-### Potential Phase 8 Ideas
+### TDD Demo Script (NEW!)
+
+For demonstrating true TDD workflow:
+1. `groot init && groot plant "Python Basics"`
+2. `groot seed --phase 1 --template python --tdd` (Claude generates working tests!)
+3. `groot check --phase 1` (tests FAIL - RED!)
+4. Show the generated test file - real assertions, not stubs
+5. `groot solve --source-only --phase 1` (generate only source code)
+6. `groot check --phase 1` (tests PASS - GREEN!)
+
+### Potential Future Phase Ideas
 
 - Curriculum regeneration/refinement
-- Progress tracking with analytics
+- Progress tracking with analytics dashboard
 - Multi-user support
-- Export curriculum to different formats
+- Export curriculum to different formats (PDF, Markdown)
 - Integration with external learning resources
 - Spaced repetition reminders
+- Code review feedback on implementations
+- Difficulty adjustment based on test pass rates
 
 ### Resources
 
@@ -168,6 +273,6 @@ For stakeholder demos, use:
 
 ---
 
-**Status**: Phase 7 Complete 🌳
+**Status**: Phase 11 Complete 🌳
 
 *"We are Groot."*
