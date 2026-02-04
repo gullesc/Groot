@@ -142,6 +142,13 @@ export async function solvePhase(
     results.push(result);
   }
 
+  // Regenerate __init__.py for Python projects so it stays in sync
+  // with the actual class names in the generated source files
+  const projectType = detectProjectType(options.outputDir);
+  if (projectType === 'python' && !options.dryRun) {
+    await regenerateInitFile(phase.deliverables, options.outputDir);
+  }
+
   return {
     phase: phase.number,
     results,
@@ -172,6 +179,57 @@ function getFilePaths(
       language: 'python',
     };
   }
+}
+
+/**
+ * Regenerate src/__init__.py for Python projects to keep it in sync
+ * with the actual class/module names after solving.
+ */
+async function regenerateInitFile(
+  deliverables: Deliverable[],
+  outputDir: string
+): Promise<void> {
+  const initPath = join(outputDir, 'src', '__init__.py');
+  if (!existsSync(initPath)) return;
+
+  const imports: string[] = [];
+  const exportNames: string[] = [];
+
+  for (const d of deliverables) {
+    const moduleName = toSnakeCase(d.title);
+    const sourcePath = join(outputDir, 'src', `${moduleName}.py`);
+
+    // Read the actual class name from the generated source file
+    // rather than computing it (Claude may use different casing)
+    let className = toPascalCase(d.title); // fallback only
+    if (existsSync(sourcePath)) {
+      try {
+        const source = await readFile(sourcePath, 'utf-8');
+        const classMatch = source.match(/^class\s+([A-Za-z_][A-Za-z0-9_]*)/m);
+        if (classMatch && classMatch[1]) {
+          className = classMatch[1];
+        }
+      } catch {
+        // Use fallback
+      }
+    }
+
+    imports.push(`from .${moduleName} import ${className}`);
+    exportNames.push(`"${className}"`);
+  }
+
+  const content = `"""
+Phase deliverables package.
+
+This module exports all deliverable implementations.
+"""
+
+${imports.join('\n')}
+
+__all__ = [${exportNames.join(', ')}]
+`;
+
+  await writeFile(initPath, content, 'utf-8');
 }
 
 /**
@@ -209,16 +267,22 @@ CRITICAL REQUIREMENTS:
 5. The execute() method should work without throwing NotImplementedError
 6. Implement all TODO items from the stub
 7. Include helpful comments explaining the implementation
+8. The file MUST end with the factory function - do NOT omit it
 
 The tests expect these EXACT exports:
 - The class name from the stub (e.g., DatabaseAwareNlpPipeline)
 - The factory function from the stub (e.g., create_database_aware_nlp_pipeline)
 
+IMPORTANT: You MUST include the factory function at the end of the file. The factory function
+is a simple function that creates and returns an instance of the class. If the stub has
+\`def create_${language === 'python' ? toSnakeCase(deliverable.title) : ''}(...)\`, you MUST include it.
+Without it, tests will fail to import.
+
 Return ONLY the complete source code file with the same structure as the stub.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
+    max_tokens: 16384,
     messages: [{ role: 'user', content: prompt }],
   });
 
@@ -275,7 +339,7 @@ Return ONLY the complete test file, no explanations outside the code.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 4096,
+    max_tokens: 16384,
     messages: [{ role: 'user', content: prompt }],
   });
 
