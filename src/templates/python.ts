@@ -88,13 +88,14 @@ addopts = -v --tb=short
 }
 
 function generateInitFile(deliverables: Deliverable[]): string {
-  const imports = deliverables.map(d => {
+  const exports = deliverables.map(d => `"${toPascalCase(d.title)}"`);
+
+  // Use try/except per import so one broken module doesn't block all tests
+  const tryImports = deliverables.map(d => {
     const moduleName = toSnakeCase(d.title);
     const className = toPascalCase(d.title);
-    return `from .${moduleName} import ${className}`;
+    return `try:\n    from .${moduleName} import ${className}\nexcept (ImportError, SyntaxError):\n    ${className} = None  # type: ignore`;
   });
-
-  const exports = deliverables.map(d => `"${toPascalCase(d.title)}"`);
 
   return `"""
 Phase deliverables package.
@@ -102,7 +103,7 @@ Phase deliverables package.
 This module exports all deliverable implementations.
 """
 
-${imports.join('\n')}
+${tryImports.join('\n\n')}
 
 __all__ = [${exports.join(', ')}]
 `;

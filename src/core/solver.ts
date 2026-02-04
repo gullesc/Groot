@@ -218,13 +218,19 @@ async function regenerateInitFile(
     exportNames.push(`"${className}"`);
   }
 
+  // Use try/except per import so one broken module doesn't block all tests
+  const tryImports = imports.map((imp, i) => {
+    const name = (exportNames[i] ?? '""').replace(/"/g, '');
+    return `try:\n    ${imp}\nexcept (ImportError, SyntaxError):\n    ${name} = None  # type: ignore`;
+  });
+
   const content = `"""
 Phase deliverables package.
 
 This module exports all deliverable implementations.
 """
 
-${imports.join('\n')}
+${tryImports.join('\n\n')}
 
 __all__ = [${exportNames.join(', ')}]
 `;
@@ -268,6 +274,7 @@ CRITICAL REQUIREMENTS:
 6. Implement all TODO items from the stub
 7. Include helpful comments explaining the implementation
 8. The file MUST end with the factory function - do NOT omit it
+9. NEVER nest triple-quoted strings (''' inside ''' or \""" inside \"""). If you need to embed code as a string, use double-quotes for the outer string and single-quotes inside (or vice versa), or use string concatenation. Nested triple quotes cause SyntaxErrors.
 
 The tests expect these EXACT exports:
 - The class name from the stub (e.g., DatabaseAwareNlpPipeline)
