@@ -97,6 +97,10 @@ import {
   generateSpecsForPhase,
 } from '../core/spec-generator';
 import {
+  syncWithCurriculum,
+  fullSyncWithCurriculum,
+} from '../core/sync';
+import {
   writeConstitution,
 } from '../core/constitution-generator';
 import { readFileSync } from 'fs';
@@ -1948,6 +1952,15 @@ program
         if (updated) {
           await saveCurriculum(curriculum);
           console.log(chalk.green('\n✅ Curriculum updated with completion status'));
+
+          // Auto-sync README.md and OBJECTIVES.md with completion status
+          const syncResult = await syncWithCurriculum(curriculum, phase, {
+            outputDir: './',
+            verbose: options.verbose,
+          });
+          if (syncResult.filesModified.length > 0) {
+            console.log(chalk.green('📝 Synced project files with completion status'));
+          }
         }
       }
 
@@ -1980,6 +1993,94 @@ program
 
     } catch (error) {
       console.error(chalk.red('Error running tests:'), error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
+// groot sync - Sync README/OBJECTIVES with curriculum completion status
+// ============================================================================
+program
+  .command('sync')
+  .description('Sync README.md and OBJECTIVES.md with curriculum completion status')
+  .option('-p, --phase <number>', 'Phase number to sync (default: current phase)')
+  .option('--dry-run', 'Preview changes without writing files')
+  .option('-v, --verbose', 'Show detailed output')
+  .action(async (options) => {
+    console.log(LOGO);
+    console.log(chalk.green(`\n📝 GROOT - Sync Project Files\n`));
+
+    try {
+      // Check prerequisites
+      if (!isGrootInitialized() || !hasCurriculum()) {
+        console.log(chalk.yellow('No curriculum found in this project.'));
+        console.log(chalk.gray('Generate one with: groot plant "your topic"'));
+        process.exit(1);
+      }
+
+      // Load curriculum
+      const curriculum = await getCurrentCurriculum();
+      if (!curriculum) {
+        console.error(chalk.red('Failed to load curriculum'));
+        process.exit(1);
+      }
+
+      // Determine which phase to sync
+      let phaseNumber: number;
+      if (options.phase) {
+        phaseNumber = parseInt(options.phase, 10);
+      } else {
+        // Use current phase index
+        phaseNumber = curriculum.currentPhaseIndex + 1;
+      }
+
+      const phase = curriculum.phases.find(p => p.number === phaseNumber);
+      if (!phase) {
+        console.error(chalk.red(`Phase ${phaseNumber} not found`));
+        process.exit(1);
+      }
+
+      console.log(chalk.cyan(`Syncing Phase ${phase.number}: ${phase.title}`));
+      console.log(chalk.gray(`Status: ${phase.status}`));
+
+      // Count completed deliverables
+      const completedCount = phase.deliverables.filter(d => d.completed).length;
+      const totalCount = phase.deliverables.length;
+      console.log(chalk.gray(`Deliverables: ${completedCount}/${totalCount} completed\n`));
+
+      // Perform sync
+      const result = await fullSyncWithCurriculum(curriculum, phase, {
+        outputDir: './',
+        verbose: options.verbose,
+        dryRun: options.dryRun,
+      });
+
+      // Report results
+      if (result.filesModified.length > 0) {
+        console.log(chalk.green(`\n✅ ${options.dryRun ? 'Would sync' : 'Synced'} ${result.filesModified.length} file(s):`));
+        for (const file of result.filesModified) {
+          console.log(chalk.gray(`   - ${file}`));
+        }
+      } else {
+        console.log(chalk.yellow('\nNo changes needed - files already in sync.'));
+      }
+
+      if (result.errors.length > 0) {
+        console.log(chalk.red('\nErrors:'));
+        for (const error of result.errors) {
+          console.log(chalk.red(`   - ${error}`));
+        }
+      }
+
+      // Show deliverable status
+      console.log(chalk.cyan('\nDeliverable Status:'));
+      for (const del of phase.deliverables) {
+        const icon = del.completed ? chalk.green('✓') : chalk.gray('○');
+        console.log(`  ${icon} ${del.title}`);
+      }
+
+    } catch (error) {
+      console.error(chalk.red('Error syncing files:'), error);
       process.exit(1);
     }
   });

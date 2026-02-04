@@ -128,6 +128,7 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | `groot config` | Manage configuration settings |
 | `groot check` | Verify phase completion via tests |
 | `groot solve` | Generate solution implementations |
+| `groot sync` | Sync README/OBJECTIVES with completion status |
 
 ### Command Examples
 
@@ -170,6 +171,11 @@ groot config --init                            # Create .grootrc
 groot check                                    # Check specs + run tests
 groot check --phase 1 --update                 # Mark passing deliverables
 groot check --specs-only                       # Only validate spec artifacts
+
+# Sync project files with completion status
+groot sync                                     # Sync current phase
+groot sync --phase 1                           # Sync specific phase
+groot sync --dry-run                           # Preview changes
 
 # Spec-Driven Development (SDD)
 groot solve --phase 1                          # Generate SDD spec artifacts
