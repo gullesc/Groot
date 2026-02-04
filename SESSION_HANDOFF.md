@@ -1,6 +1,65 @@
-# Session Handoff - February 2, 2026
+# Session Handoff - February 4, 2026
 
 ## Session Summary
+
+Tonight we completed **Phase 12: Spec-Driven Development (SDD)** - replacing the fragile code generation solver with a spec-driven approach. Instead of generating source code directly (which caused syntax errors, truncated files, and import issues), `groot solve` now generates SDD artifacts (spec.md, plan.md, tasks.md) that students use with Claude Code or GitHub Copilot.
+
+### Phase 12 Accomplishments
+
+1. **New Core Modules**
+   - `src/core/spec-generator.ts` - Generates SDD artifacts via Claude API
+   - `src/core/spec-validator.ts` - Validates spec artifacts exist for `groot check`
+   - `src/core/prompt-generator.ts` - Creates ready-to-paste prompts for Claude Code/Copilot
+   - `src/core/constitution-generator.ts` - Generates project coding standards
+
+2. **Refactored `groot solve` Command**
+   - Now generates spec artifacts instead of source code
+   - Removed `--tests-only` and `--source-only` flags
+   - Added `--prompt` flag for Claude Code prompts
+   - Added `--force` flag to overwrite existing specs
+
+3. **Updated `groot seed` Command**
+   - Automatically generates constitution + specs after scaffolding
+   - Added `--skip-specs` flag for backwards compatibility
+   - Updated walkthrough to show spec files and SDD workflow
+
+4. **Updated `groot check` Command**
+   - Added Stage 1: Spec validation (before running tests)
+   - Added `--specs-only` flag for spec-only validation
+   - Two-stage validation: specs → tests
+
+5. **SDD Artifact Structure**
+   ```
+   specs/
+   └── phase-N/
+       └── deliverable-name/
+           ├── spec.md    # Feature specification
+           ├── plan.md    # Implementation approach
+           └── tasks.md   # Implementation checklist
+
+   .groot/
+   └── constitution.md    # Project-wide coding standards
+   ```
+
+6. **Key Design Decisions**
+   - Students must have Claude Code or GitHub Copilot (prerequisite)
+   - GROOT generates **completed specs** (no `[NEEDS CLARIFICATION]` markers)
+   - GROOT is the rules engine - generates AND validates SDD artifacts
+   - Spec parsing is trivial (markdown sections) vs. fragile code extraction
+
+### What's Changed
+
+| Before (Phase 11) | After (Phase 12) |
+|------------------|------------------|
+| `groot solve` generates Python/TypeScript code | `groot solve` generates spec.md, plan.md, tasks.md |
+| Code generation had syntax errors | Markdown can't have syntax errors |
+| `--source-only` and `--tests-only` flags | `--prompt` flag for Claude Code |
+| `groot check` only runs tests | `groot check` validates specs THEN runs tests |
+| No constitution file | Auto-generated `.groot/constitution.md` |
+
+---
+
+# Previous Session - February 2, 2026
 
 Tonight we completed **Phase 11: True TDD Workflow** - enabling test-driven development where tests are generated first using Claude, and students implement code to make them pass.
 
@@ -96,10 +155,9 @@ groot plant "Building REST APIs" --interactive      # Personalized!
 
 # Scaffold project files (6 templates!)
 groot seed --list-templates
-groot seed --phase 1 --template typescript
-groot seed --phase 1 --template react
-groot seed --phase 1 --template vue
-groot seed --phase 1 --template python
+groot seed --phase 1 --template typescript          # Creates stubs + specs
+groot seed --phase 1 --template python --tdd        # TDD + SDD mode
+groot seed --phase 1 --skip-specs                   # Skip spec generation
 groot seed --no-hooks                               # Skip npm install
 
 # Session management
@@ -115,25 +173,27 @@ groot config --get llm.model       # Get specific value
 groot config --init                # Create project .grootrc
 groot config --init-user           # Create ~/.groot/config.yaml
 
-# Test-based phase verification
-groot check                        # Check current phase
+# Spec-based phase verification (NEW!)
+groot check                        # Stage 1 (specs) + Stage 2 (tests)
 groot check --phase 1              # Check specific phase
+groot check --specs-only           # Only validate spec artifacts
 groot check --update               # Mark passing deliverables complete
 groot check --verbose              # Show full test output
 
-# Solution generator (answer key)
-groot solve --phase 1              # Generate solutions for all deliverables
+# Spec-Driven Development (NEW!)
+groot solve --phase 1              # Generate SDD specs for all deliverables
 groot solve -d "Deliverable Name"  # Solve specific deliverable
-groot solve --tests-only           # Only generate test implementations
-groot solve --source-only          # Only generate source (TDD mode)
+groot solve --phase 1 --prompt     # Get Claude Code prompt
+groot solve --force                # Overwrite existing specs
 groot solve --dry-run              # Preview without writing files
 
-# TDD workflow (NEW!)
-groot seed --phase 1 --template python --tdd   # Scaffold with working tests
+# TDD + SDD workflow
+groot seed --phase 1 --template python --tdd   # Scaffold with tests + specs
 groot check --phase 1                          # Tests fail (RED)
-# ... student implements code ...
+# Read specs/phase-1/*/spec.md for requirements
+# Use Claude Code or Copilot to implement...
 groot check --phase 1                          # Tests pass (GREEN)
-groot solve --source-only --phase 1            # Get help if stuck
+groot solve --prompt --phase 1                 # Get Claude Code prompt if stuck
 ```
 
 ### Completed Phases
@@ -149,17 +209,26 @@ groot solve --source-only --phase 1            # Get help if stuck
 - ✅ **Phase 9**: Automated Phase Verification
 - ✅ **Phase 10**: Solution Generator (Answer Key)
 - ✅ **Phase 11**: True TDD Workflow
+- ✅ **Phase 12**: Spec-Driven Development (SDD)
 
 ### Project Architecture
 
 ```
 .groot/
 ├── curriculum.json        # Active curriculum
+├── constitution.md        # Project coding standards (NEW!)
 ├── active-session.json    # Current session (ephemeral)
 ├── sessions/              # Completed sessions (durable)
 │   └── YYYY-MM-DD-*.json
 └── journal/               # Learning notes
     └── YYYY-MM-DD-*.md
+
+specs/                     # SDD artifacts (NEW!)
+└── phase-N/
+    └── deliverable-name/
+        ├── spec.md        # Feature specification
+        ├── plan.md        # Implementation approach
+        └── tasks.md       # Implementation checklist
 
 ~/.groot/
 ├── config.yaml            # User-level configuration
@@ -171,19 +240,37 @@ groot solve --source-only --phase 1            # Get help if stuck
 ```
 src/
 ├── agents/           # Seedling, Bark, Canopy
-├── core/             # Orchestrator, session, scaffold, hooks, config
+├── core/             # Orchestrator, session, scaffold, hooks, config, SDD
+│   ├── spec-generator.ts      # SDD artifact generation
+│   ├── spec-validator.ts      # Spec validation
+│   ├── prompt-generator.ts    # Claude Code prompts
+│   ├── constitution-generator.ts  # Project constitution
+│   └── solver.ts              # SDD workflow coordinator
 ├── templates/        # TypeScript, JavaScript, Python, Minimal, React, Vue
 ├── cli/              # Command implementations
 └── types/            # TypeScript definitions
 ```
 
-### Key Files Changed Tonight
+### Key Files Changed This Session (Phase 12)
+
+| File | Changes |
+|------|---------|
+| `src/core/spec-generator.ts` | NEW - SDD artifact generation via Claude API |
+| `src/core/spec-validator.ts` | NEW - Validates spec artifacts exist |
+| `src/core/prompt-generator.ts` | NEW - Claude Code/Copilot prompt generation |
+| `src/core/constitution-generator.ts` | NEW - Project constitution generator |
+| `src/core/solver.ts` | MAJOR REFACTOR - Now delegates to spec-generator |
+| `src/core/paths.ts` | Added spec path helpers (`getSpecsDir`, etc.) |
+| `src/types/index.ts` | Added SDD type definitions |
+| `src/core/index.ts` | Added exports for new modules |
+| `src/cli/index.ts` | Updated `seed`, `solve`, `check` commands for SDD |
+
+### Key Files Changed (Phase 11)
 
 | File | Changes |
 |------|---------|
 | `src/cli/index.ts` | Added `--interactive` flag, spinner, post-scaffold walkthrough, `groot check`, `groot solve` |
 | `src/core/test-runner.ts` | NEW - Test runner for Jest/Pytest with deliverable mapping |
-| `src/core/solver.ts` | NEW - Solution generator using Claude API |
 | `src/agents/seedling.ts` | Added defensive checks, debug logging, validation |
 | `src/agents/base.ts` | Increased max_tokens to 8192 |
 | `src/core/config.ts` | YAML hierarchical loading, `loadExtendedConfig()` |
@@ -195,7 +282,6 @@ src/
 | `src/templates/vue.ts` | NEW - Vue 3 + Vite template |
 | `src/core/test-generator.ts` | NEW - Claude-based test generation for TDD |
 | `src/core/scaffold.ts` | Added TDD mode integration |
-| `src/core/solver.ts` | Added `--source-only` option for TDD |
 
 ### Project State
 
@@ -232,11 +318,11 @@ For stakeholder demos, use:
 2. `groot plant "Your topic" --interactive` (shows personalization!)
 3. `groot status`
 4. `groot seed --list-templates`
-5. `groot seed --phase 1 --template python`
-6. `groot check --phase 1` (shows test-based verification - tests are skipped!)
-7. `groot solve --phase 1 --dry-run` (preview answer key generation!)
-8. `groot solve --phase 1` (generate working implementations!)
-9. `groot check --phase 1` (now tests pass!)
+5. `groot seed --phase 1 --template python` (creates stubs + specs!)
+6. `ls specs/phase-1/` (show generated spec directories!)
+7. `cat .groot/constitution.md` (show project constitution!)
+8. `groot check --phase 1` (Stage 1: specs valid, Stage 2: tests skipped)
+9. `groot solve --phase 1 --prompt` (show Claude Code prompt!)
 10. `groot wake --phase 1`
 11. `groot ask "question"`
 12. `groot remember "note" -c "content"`
@@ -244,15 +330,25 @@ For stakeholder demos, use:
 14. `groot check --update` (mark completed deliverables!)
 15. `groot config --list`
 
-### TDD Demo Script (NEW!)
+### SDD + TDD Demo Script (NEW!)
 
-For demonstrating true TDD workflow:
+For demonstrating Spec-Driven Development with TDD:
 1. `groot init && groot plant "Python Basics"`
-2. `groot seed --phase 1 --template python --tdd` (Claude generates working tests!)
-3. `groot check --phase 1` (tests FAIL - RED!)
-4. Show the generated test file - real assertions, not stubs
-5. `groot solve --source-only --phase 1` (generate only source code)
-6. `groot check --phase 1` (tests PASS - GREEN!)
+2. `groot seed --phase 1 --template python --tdd` (generates tests + specs!)
+3. `groot check --phase 1` (Stage 1: specs valid, Stage 2: tests FAIL - RED!)
+4. `cat specs/phase-1/*/spec.md` (show the spec artifacts)
+5. `groot solve --phase 1 --prompt` (get Claude Code prompt)
+6. Copy prompt into Claude Code or Copilot
+7. `groot check --phase 1` (tests PASS - GREEN!)
+
+### Spec Artifact Demo
+
+Show what gets generated:
+1. `ls specs/phase-1/` (deliverable directories)
+2. `cat specs/phase-1/<deliverable>/spec.md` (feature specification)
+3. `cat specs/phase-1/<deliverable>/plan.md` (implementation approach)
+4. `cat specs/phase-1/<deliverable>/tasks.md` (implementation checklist)
+5. `cat .groot/constitution.md` (project-wide coding standards)
 
 ### Potential Future Phase Ideas
 
@@ -273,6 +369,6 @@ For demonstrating true TDD workflow:
 
 ---
 
-**Status**: Phase 11 Complete 🌳
+**Status**: Phase 12 Complete 🌳
 
 *"We are Groot."*

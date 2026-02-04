@@ -86,7 +86,19 @@ import {
 import {
   solveDeliverable,
   solvePhase,
+  specsExist,
+  getPrompt,
+  getPhasePrompt,
 } from '../core/solver';
+import {
+  validatePhaseSpecs,
+} from '../core/spec-validator';
+import {
+  generateSpecsForPhase,
+} from '../core/spec-generator';
+import {
+  writeConstitution,
+} from '../core/constitution-generator';
 import { readFileSync } from 'fs';
 
 // Get version from package.json (CommonJS has __dirname)
@@ -1433,6 +1445,7 @@ program
   .option('--no-hooks', 'Skip post-scaffold hooks (e.g., npm install)')
   .option('--list-templates', 'List all available templates')
   .option('--tdd', 'TDD mode: Generate working tests using Claude (tests fail until you implement)')
+  .option('--skip-specs', 'Skip generating SDD spec artifacts')
   .action(async (options) => {
     // List templates mode
     if (options.listTemplates) {
@@ -1604,6 +1617,47 @@ program
         console.log(chalk.gray('\n   No post-scaffold hooks to run.'));
       }
 
+      // Generate SDD specs (unless --skip-specs or dry-run)
+      let specsGenerated: string[] = [];
+      let constitutionPath: string | undefined;
+
+      if (!options.dryRun && !options.skipSpecs) {
+        console.log(chalk.cyan('\n📋 Generating SDD artifacts...'));
+
+        try {
+          // Generate constitution first
+          constitutionPath = await writeConstitution({
+            curriculum,
+            templateType,
+            outputDir: options.output,
+          });
+          console.log(chalk.green(`   ✓ Constitution: .groot/constitution.md`));
+
+          // Generate specs for the phase
+          const specResults = await generateSpecsForPhase(phase, {
+            outputDir: options.output,
+            phaseNumber: selectedPhase,
+            curriculum,
+            templateType,
+            verbose: options.verbose,
+          });
+
+          for (const specResult of specResults.results) {
+            if (specResult.filesCreated.length > 0) {
+              specsGenerated.push(...specResult.filesCreated);
+              console.log(chalk.green(`   ✓ ${specResult.deliverableTitle}`));
+            } else if (specResult.error) {
+              console.log(chalk.yellow(`   ⚠ ${specResult.deliverableTitle}: ${specResult.error}`));
+            }
+          }
+        } catch (specError) {
+          console.log(chalk.yellow(`   ⚠ Spec generation failed: ${specError}`));
+          console.log(chalk.gray('   You can generate specs later with: groot solve'));
+        }
+      } else if (options.skipSpecs) {
+        console.log(chalk.gray('\n   Skipping spec generation (--skip-specs)'));
+      }
+
       // Next steps with template-specific walkthrough
       if (result.success && !options.dryRun) {
         console.log(chalk.cyan('\n🌱 Project Walkthrough:'));
@@ -1624,6 +1678,12 @@ program
           }
         }
         console.log(chalk.gray(`   • ${configFiles.length} config file(s)`));
+        if (constitutionPath) {
+          console.log(chalk.gray(`   • 1 constitution file (.groot/constitution.md)`));
+        }
+        if (specsGenerated.length > 0) {
+          console.log(chalk.gray(`   • ${specsGenerated.length} spec file(s) in specs/phase-${selectedPhase}/`));
+        }
 
         // Template-specific instructions
         console.log(chalk.white('\n   Getting started:'));
@@ -1666,17 +1726,18 @@ program
         if (options.tdd) {
           console.log(chalk.yellow('   TDD Mode - Red → Green → Refactor:'));
           console.log(chalk.gray(`   1. ${chalk.cyan('groot check')} - Run tests (they will fail - RED)`));
-          console.log(chalk.gray(`   2. Implement the code to make tests pass`));
-          console.log(chalk.gray(`   3. ${chalk.cyan('groot check')} - Verify tests pass (GREEN)`));
-          console.log(chalk.gray(`   4. Refactor if needed, keeping tests passing`));
-          console.log(chalk.gray(`   5. ${chalk.cyan('groot solve --source-only')} - Get help if stuck`));
+          console.log(chalk.gray(`   2. Read specs/phase-${selectedPhase}/<deliverable>/spec.md`));
+          console.log(chalk.gray(`   3. Use Claude Code or Copilot to implement`));
+          console.log(chalk.gray(`   4. ${chalk.cyan('groot check')} - Verify tests pass (GREEN)`));
+          console.log(chalk.gray(`   5. ${chalk.cyan('groot solve --prompt')} - Get a ready-to-paste prompt if stuck`));
         } else {
           console.log(chalk.gray(`   1. ${chalk.cyan(`groot wake --phase ${selectedPhase}`)} - Start learning session`));
-          console.log(chalk.gray(`   2. Review the generated code and TODOs`));
+          console.log(chalk.gray(`   2. Read specs/phase-${selectedPhase}/<deliverable>/spec.md`));
           console.log(chalk.gray(`   3. ${chalk.cyan('groot ask "question"')} - Ask tutor for help`));
-          console.log(chalk.gray(`   4. Implement until tests pass`));
-          console.log(chalk.gray(`   5. ${chalk.cyan('groot remember "insight"')} - Save learnings`));
-          console.log(chalk.gray(`   6. ${chalk.cyan('groot rest')} - End session when done`));
+          console.log(chalk.gray(`   4. Use Claude Code or Copilot to implement`));
+          console.log(chalk.gray(`   5. ${chalk.cyan('groot check')} - Verify tests pass`));
+          console.log(chalk.gray(`   6. ${chalk.cyan('groot remember "insight"')} - Save learnings`));
+          console.log(chalk.gray(`   7. ${chalk.cyan('groot rest')} - End session when done`));
         }
       }
 
@@ -1691,9 +1752,10 @@ program
 // ============================================================================
 program
   .command('check')
-  .description('Check - run tests and verify phase completion')
+  .description('Check - validate specs and run tests for phase completion')
   .option('-p, --phase <number>', 'Phase number to check')
   .option('-v, --verbose', 'Show detailed test output')
+  .option('--specs-only', 'Only validate spec artifacts, skip tests')
   .option('--update', 'Update curriculum with completion status')
   .action(async (options) => {
     console.log(LOGO);
@@ -1748,7 +1810,61 @@ program
         process.exit(1);
       }
 
-      console.log(chalk.cyan(`\nChecking Phase ${phase.number}: ${phase.title}`));
+      console.log(chalk.cyan(`\nChecking Phase ${phase.number}: ${phase.title}\n`));
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Stage 1: Spec Validation
+      // ─────────────────────────────────────────────────────────────────────
+      console.log(chalk.white('Stage 1: Spec Validation\n'));
+
+      const specValidation = await validatePhaseSpecs(phase, './');
+
+      // Display spec validation results
+      if (specValidation.constitutionValid) {
+        console.log(chalk.green('  ✓ Constitution exists'));
+      } else {
+        console.log(chalk.yellow('  ⚠ Constitution missing (.groot/constitution.md)'));
+      }
+
+      for (const result of specValidation.results) {
+        const allPresent = result.specExists && result.planExists && result.tasksExists;
+        const hasIssues = result.issues.length > 0;
+
+        if (allPresent && !hasIssues) {
+          console.log(chalk.green(`  ✓ ${result.deliverableTitle}`));
+        } else {
+          console.log(chalk.yellow(`  ⚠ ${result.deliverableTitle}`));
+          for (const issue of result.issues) {
+            console.log(chalk.gray(`      - ${issue}`));
+          }
+        }
+      }
+
+      // Spec summary
+      const specsValid = specValidation.allValid;
+      console.log(chalk.white('\n  ─────────────────────────────────────'));
+      if (specsValid) {
+        console.log(chalk.green('  Stage 1 Result: All specs valid ✓'));
+      } else {
+        const missingSpecs = specValidation.results.filter(
+          r => !r.specExists || !r.planExists || !r.tasksExists
+        ).length;
+        console.log(chalk.yellow(`  Stage 1 Result: ${missingSpecs} deliverable(s) missing specs`));
+        console.log(chalk.gray('  Run "groot solve" to generate missing specs'));
+      }
+
+      // If --specs-only, stop here
+      if (options.specsOnly) {
+        if (!specsValid) {
+          process.exit(1);
+        }
+        return;
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Stage 2: Test Validation
+      // ─────────────────────────────────────────────────────────────────────
+      console.log(chalk.white('\n\nStage 2: Test Validation\n'));
       console.log(chalk.gray(`Running tests for ${phase.deliverables.length} deliverables...\n`));
 
       // Run tests with spinner
@@ -1767,9 +1883,7 @@ program
 
       spinner.stop();
 
-      // Display results
-      console.log(chalk.white('Test Results:\n'));
-
+      // Display test results
       for (const result of results.results) {
         const icon = result.passed ? chalk.green('✅') : chalk.red('❌');
         let status: string;
@@ -1840,10 +1954,10 @@ program
       // Next steps
       if (!results.success) {
         console.log(chalk.cyan('\n🌱 Next steps:'));
-        console.log(chalk.gray('   1. Review the failing tests'));
-        console.log(chalk.gray('   2. Implement the missing functionality'));
+        console.log(chalk.gray('   1. Review the spec files for each deliverable'));
+        console.log(chalk.gray('   2. Use Claude Code or Copilot to implement'));
         console.log(chalk.gray('   3. Run "groot check" again to verify'));
-        console.log(chalk.gray(`   4. Use "groot ask 'how do I...'" for help`));
+        console.log(chalk.gray(`   4. Use "groot solve --prompt" for a ready-to-paste prompt`));
       } else {
         console.log(chalk.green('\n🎉 All tests passing! Phase complete.'));
         if (!options.update) {
@@ -1875,16 +1989,16 @@ program
 // ============================================================================
 program
   .command('solve')
-  .description('Solve - generate working implementations when stuck')
+  .description('Solve - generate SDD specs to help implement deliverables')
   .option('-p, --phase <number>', 'Phase number to solve')
   .option('-d, --deliverable <title>', 'Specific deliverable to solve')
-  .option('--tests-only', 'Only generate test implementations, not source code')
-  .option('--source-only', 'Only generate source code (TDD mode - tests already exist)')
+  .option('--prompt', 'Output a Claude Code prompt instead of generating specs')
+  .option('--force', 'Overwrite existing spec files')
   .option('--dry-run', 'Preview what would be generated without writing files')
   .option('-v, --verbose', 'Show detailed output')
   .action(async (options) => {
     console.log(LOGO);
-    console.log(chalk.green(`\n🔑 GROOT - Solution Generator\n`));
+    console.log(chalk.green(`\n📋 GROOT - Spec-Driven Solution Generator\n`));
 
     try {
       // Check prerequisites
@@ -1901,7 +2015,7 @@ program
         process.exit(1);
       }
 
-      // Detect project type
+      // Detect project type (template type)
       const projectType = detectProjectType('./');
       if (projectType === 'unknown') {
         console.log(chalk.yellow('Could not detect project type.'));
@@ -1909,7 +2023,8 @@ program
         process.exit(1);
       }
 
-      console.log(chalk.gray(`Detected project type: ${projectType}`));
+      const templateType = projectType === 'typescript' ? 'typescript' : 'python';
+      console.log(chalk.gray(`Detected project type: ${templateType}`));
 
       // Select phase
       let selectedPhase: number;
@@ -1950,23 +2065,35 @@ program
           process.exit(1);
         }
 
-        console.log(chalk.cyan(`\nGenerating solution for: ${deliverable.title}`));
+        // If --prompt flag, just output the prompt
+        if (options.prompt) {
+          const prompt = getPrompt(deliverable, phase, './', templateType);
+          console.log(chalk.cyan(`\n📋 Claude Code Prompt for "${deliverable.title}":\n`));
+          console.log(chalk.white('─'.repeat(60)));
+          console.log(prompt);
+          console.log(chalk.white('─'.repeat(60)));
+          console.log(chalk.gray('\nCopy the above prompt and paste it into Claude Code or Copilot.'));
+          return;
+        }
+
+        console.log(chalk.cyan(`\nGenerating specs for: ${deliverable.title}`));
 
         if (options.dryRun) {
           console.log(chalk.yellow('[DRY RUN - No files will be written]\n'));
         }
 
         const spinner = ora({
-          text: 'Generating implementation...',
+          text: 'Generating spec artifacts...',
           spinner: 'dots',
         }).start();
 
         const result = await solveDeliverable(deliverable, phase, {
           outputDir: './',
-          testsOnly: options.testsOnly,
-          sourceOnly: options.sourceOnly,
+          curriculum,
+          templateType,
           dryRun: options.dryRun,
           verbose: options.verbose,
+          force: options.force,
         });
 
         if (result.error) {
@@ -1975,50 +2102,62 @@ program
           process.exit(1);
         }
 
-        spinner.succeed('Solution generated!');
+        spinner.succeed('Specs generated!');
 
         // Display results
-        console.log(chalk.white('\nGenerated files:'));
-        if (result.sourceGenerated && result.sourceFile) {
-          console.log(chalk.green(`  ✅ ${result.sourceFile}`));
+        if (result.filesCreated.length > 0) {
+          console.log(chalk.white('\nGenerated files:'));
+          for (const file of result.filesCreated) {
+            console.log(chalk.green(`  ✅ ${file}`));
+          }
         }
-        if (result.testsGenerated && result.testFile) {
-          console.log(chalk.green(`  ✅ ${result.testFile}`));
+        if (result.filesSkipped.length > 0) {
+          console.log(chalk.gray('\nSkipped (already exist):'));
+          for (const file of result.filesSkipped) {
+            console.log(chalk.gray(`  ⏭️  ${file}`));
+          }
+        }
+
+        // Show prompt
+        if (result.prompt) {
+          console.log(chalk.cyan('\n📋 Claude Code Prompt:\n'));
+          console.log(chalk.white('─'.repeat(60)));
+          console.log(result.prompt);
+          console.log(chalk.white('─'.repeat(60)));
         }
 
       } else {
         // Solve entire phase
-        console.log(chalk.cyan(`\nGenerating solutions for Phase ${phase.number}: ${phase.title}`));
-        console.log(chalk.gray(`${phase.deliverables.length} deliverables to solve\n`));
+        console.log(chalk.cyan(`\nGenerating specs for Phase ${phase.number}: ${phase.title}`));
+        console.log(chalk.gray(`${phase.deliverables.length} deliverables\n`));
+
+        // If --prompt flag, output phase prompt
+        if (options.prompt) {
+          const prompt = getPhasePrompt(phase, './', templateType);
+          console.log(chalk.cyan(`\n📋 Claude Code Prompt for Phase ${phase.number}:\n`));
+          console.log(chalk.white('─'.repeat(60)));
+          console.log(prompt);
+          console.log(chalk.white('─'.repeat(60)));
+          console.log(chalk.gray('\nCopy the above prompt and paste it into Claude Code or Copilot.'));
+          return;
+        }
 
         if (options.dryRun) {
           console.log(chalk.yellow('[DRY RUN - No files will be written]\n'));
         }
 
-        // Confirm before proceeding
-        if (!options.dryRun) {
-          const proceed = await confirm({
-            message: `Generate solutions for all ${phase.deliverables.length} deliverables?`,
-            default: false,
-          });
-
-          if (!proceed) {
-            console.log(chalk.gray('\nCancelled.'));
-            return;
-          }
-        }
-
         const spinner = ora({
-          text: 'Generating implementations...',
+          text: 'Generating spec artifacts...',
           spinner: 'dots',
         }).start();
 
         const results = await solvePhase(phase, {
           outputDir: './',
-          testsOnly: options.testsOnly,
-          sourceOnly: options.sourceOnly,
+          curriculum,
+          templateType,
           dryRun: options.dryRun,
           verbose: options.verbose,
+          force: options.force,
         });
 
         spinner.stop();
@@ -2032,11 +2171,10 @@ program
             console.log(chalk.gray(`   Error: ${result.error}`));
           } else {
             console.log(chalk.green(`✅ ${result.deliverableTitle}`));
-            if (result.sourceGenerated) {
-              console.log(chalk.gray(`   └─ ${result.sourceFile}`));
-            }
-            if (result.testsGenerated) {
-              console.log(chalk.gray(`   └─ ${result.testFile}`));
+            if (result.filesCreated.length > 0) {
+              console.log(chalk.gray(`   └─ ${result.specDir}/`));
+            } else if (result.filesSkipped.length > 0) {
+              console.log(chalk.gray(`   └─ (specs already exist)`));
             }
           }
         }
@@ -2044,22 +2182,23 @@ program
         // Summary
         const successCount = results.results.filter(r => !r.error).length;
         console.log(chalk.white('\n─────────────────────────────────────'));
-        console.log(chalk.white(`Generated: ${successCount}/${results.results.length} deliverables`));
+        console.log(chalk.white(`Generated specs for: ${successCount}/${results.results.length} deliverables`));
       }
 
-      // Next steps
-      console.log(chalk.cyan('\n📚 Learning Tips:'));
-      console.log(chalk.gray('   1. Review the generated code to understand the implementation'));
-      console.log(chalk.gray('   2. Run tests with "groot check" to verify'));
-      console.log(chalk.gray('   3. Try implementing similar features on your own'));
-      console.log(chalk.gray('   4. Use "groot ask" if you have questions about the code'));
+      // Next steps - SDD workflow
+      console.log(chalk.cyan('\n📚 Spec-Driven Development Workflow:'));
+      console.log(chalk.gray('   1. Read the spec.md for each deliverable'));
+      console.log(chalk.gray('   2. Review plan.md for the implementation approach'));
+      console.log(chalk.gray('   3. Follow tasks.md as your implementation checklist'));
+      console.log(chalk.gray('   4. Use Claude Code or GitHub Copilot to implement'));
+      console.log(chalk.gray('   5. Run "groot check" to verify tests pass'));
 
-      if (!options.testsOnly) {
-        console.log(chalk.yellow('\n⚠️  Note: Solutions are marked as "completed with assistance"'));
-      }
+      console.log(chalk.cyan('\n💡 Quick Start:'));
+      console.log(chalk.gray(`   groot solve --phase ${selectedPhase} --prompt`));
+      console.log(chalk.gray('   ↳ Generates a ready-to-paste prompt for Claude Code\n'));
 
     } catch (error) {
-      console.error(chalk.red('Error generating solutions:'), error);
+      console.error(chalk.red('Error generating specs:'), error);
       process.exit(1);
     }
   });

@@ -76,9 +76,17 @@ All GROOT data lives in a `.groot/` folder in your project — completely separa
 my-project/
 ├── .groot/                    # GROOT data (removable)
 │   ├── curriculum.json        # Your learning plan
+│   ├── constitution.md        # Project coding standards
 │   ├── sessions/              # Session history
 │   └── journal/               # Learning notes
+├── specs/                     # SDD artifacts (per phase)
+│   └── phase-1/
+│       └── deliverable-name/
+│           ├── spec.md        # Feature specification
+│           ├── plan.md        # Implementation plan
+│           └── tasks.md       # Task checklist
 ├── src/                       # YOUR code
+├── tests/                     # Test files
 ├── package.json               # YOUR config
 └── README.md                  # YOUR docs
 ```
@@ -102,6 +110,7 @@ Your code is always 100% yours. GROOT is just a companion for learning.
 | Phase 9 | ✅ Complete | Automated Phase Verification |
 | Phase 10 | ✅ Complete | Solution Generator (Answer Key) |
 | Phase 11 | ✅ Complete | True TDD Workflow |
+| Phase 12 | ✅ Complete | Spec-Driven Development (SDD) |
 
 ## 📋 CLI Commands
 
@@ -158,16 +167,18 @@ groot config --list                            # Show all settings
 groot config --init                            # Create .grootrc
 
 # Test verification
-groot check                                    # Check current phase
+groot check                                    # Check specs + run tests
 groot check --phase 1 --update                 # Mark passing deliverables
+groot check --specs-only                       # Only validate spec artifacts
 
-# Solution generator (answer key)
-groot solve --phase 1                          # Generate all solutions
-groot solve -d "Deliverable" --dry-run         # Preview specific solution
+# Spec-Driven Development (SDD)
+groot solve --phase 1                          # Generate SDD spec artifacts
+groot solve --phase 1 --prompt                 # Get Claude Code prompt
+groot solve -d "Deliverable" --prompt          # Prompt for specific deliverable
 
-# TDD workflow
-groot seed --phase 1 --template python --tdd   # Generate working tests
-groot solve --source-only --phase 1            # Only generate source code
+# TDD + SDD workflow
+groot seed --phase 1 --template python --tdd   # Generate tests + specs
+groot seed --phase 1 --skip-specs              # Skip spec generation
 ```
 
 ### Available Templates
@@ -200,7 +211,7 @@ groot/
 │   │   ├── bark.ts          # Tutor
 │   │   └── canopy.ts        # AI Architect
 │   ├── core/                # Core functionality
-│   │   ├── paths.ts         # .groot/ path management
+│   │   ├── paths.ts         # .groot/ and specs/ path management
 │   │   ├── session.ts       # Session lifecycle
 │   │   ├── orchestrator.ts  # Multi-agent coordination
 │   │   ├── journal.ts       # Learning journal
@@ -209,7 +220,11 @@ groot/
 │   │   ├── hooks.ts         # Post-scaffold hooks
 │   │   ├── test-runner.ts   # Jest/pytest test runner
 │   │   ├── test-generator.ts # Claude-based TDD tests
-│   │   ├── solver.ts        # Solution generator
+│   │   ├── solver.ts        # SDD workflow coordinator
+│   │   ├── spec-generator.ts # SDD artifact generation
+│   │   ├── spec-validator.ts # Spec validation for groot check
+│   │   ├── prompt-generator.ts # Claude Code prompt generation
+│   │   ├── constitution-generator.ts # Project constitution
 │   │   └── config.ts
 │   ├── templates/           # Project templates
 │   │   ├── typescript.ts    # TypeScript + Jest
@@ -238,28 +253,59 @@ As you progress through a curriculum, you'll move through growth stages:
 | Seeding | 🌾 | Ready to teach others |
 | Forest | 🌲🌳🌴 | Mastery achieved |
 
-## 🧪 TDD Workflow
+## 📋 Spec-Driven Development (SDD)
 
-GROOT supports true Test-Driven Development:
+GROOT generates **spec-driven development artifacts** that work with Claude Code or GitHub Copilot:
 
-1. **RED**: `groot seed --tdd` generates working tests that fail initially
-2. **GREEN**: Implement code to make tests pass
-3. **REFACTOR**: Clean up while keeping tests green
+- **spec.md**: Feature specification with requirements and acceptance criteria
+- **plan.md**: Implementation approach and architecture decisions
+- **tasks.md**: Step-by-step implementation checklist
+- **constitution.md**: Project-wide coding standards and rules
 
 ```bash
-# Generate project with working tests
+# Scaffold project with specs
+groot seed --phase 1 --template python       # Creates specs automatically
+
+# Or generate specs separately
+groot solve --phase 1                        # Generate spec artifacts
+
+# Get a ready-to-paste prompt for Claude Code
+groot solve --phase 1 --prompt
+
+# Validate specs exist before running tests
+groot check --specs-only
+```
+
+**Prerequisites**: Claude Code or GitHub Copilot is required for implementing from specs.
+
+## 🧪 TDD + SDD Workflow
+
+GROOT combines Test-Driven Development with Spec-Driven Development:
+
+1. **SEED**: `groot seed --tdd` generates failing tests + spec artifacts
+2. **READ**: Review `specs/phase-N/<deliverable>/spec.md` for requirements
+3. **RED**: Run `groot check` - tests fail initially
+4. **IMPLEMENT**: Use Claude Code/Copilot with the generated specs
+5. **GREEN**: Run `groot check` - tests pass
+6. **REFACTOR**: Clean up while keeping tests green
+
+```bash
+# Generate project with tests + specs
 groot seed --phase 1 --template python --tdd
 
-# Run tests (they will fail)
+# Read the specs
+cat specs/phase-1/*/spec.md
+
+# Run tests (they will fail - RED)
 groot check --phase 1
 
-# Implement your code...
+# Get a prompt for Claude Code if stuck
+groot solve --phase 1 --prompt
 
-# Verify tests pass
+# Implement your code using Claude Code or Copilot...
+
+# Verify tests pass (GREEN)
 groot check --phase 1
-
-# Get help if stuck (preserves your tests)
-groot solve --source-only --phase 1
 ```
 
 ## ⚙️ Configuration

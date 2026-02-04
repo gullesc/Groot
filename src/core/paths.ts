@@ -196,3 +196,64 @@ export async function initUserGrootDir(): Promise<void> {
     await mkdir(templatesDir, { recursive: true });
   }
 }
+
+// ============================================================================
+// Spec-Driven Development (SDD) Paths
+// ============================================================================
+
+/**
+ * Get the specs directory path (project-root/specs)
+ */
+export function getSpecsDir(outputDir?: string): string {
+  return join(outputDir || process.cwd(), 'specs');
+}
+
+/**
+ * Get the phase specs directory path (project-root/specs/phase-N)
+ */
+export function getPhaseSpecsDir(phaseNumber: number, outputDir?: string): string {
+  return join(getSpecsDir(outputDir), `phase-${phaseNumber}`);
+}
+
+/**
+ * Get the deliverable spec directory path (project-root/specs/phase-N/deliverable-slug)
+ */
+export function getDeliverableSpecDir(
+  phaseNumber: number,
+  deliverableSlug: string,
+  outputDir?: string
+): string {
+  return join(getPhaseSpecsDir(phaseNumber, outputDir), deliverableSlug);
+}
+
+/**
+ * Get the constitution file path (.groot/constitution.md)
+ */
+export function getConstitutionPath(outputDir?: string): string {
+  const grootDir = outputDir ? join(outputDir, '.groot') : getGrootDir();
+  return join(grootDir, 'constitution.md');
+}
+
+/**
+ * Check if constitution exists
+ */
+export function hasConstitution(outputDir?: string): boolean {
+  return existsSync(getConstitutionPath(outputDir));
+}
+
+/**
+ * Check if specs directory exists for a phase
+ */
+export function hasPhaseSpecs(phaseNumber: number, outputDir?: string): boolean {
+  return existsSync(getPhaseSpecsDir(phaseNumber, outputDir));
+}
+
+/**
+ * Convert a deliverable title to a kebab-case slug for directory naming
+ */
+export function toDeliverableSlug(title: string): string {
+  return title
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .toLowerCase()
+    .replace(/^-|-$/g, '');
+}
