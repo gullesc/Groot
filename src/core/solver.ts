@@ -263,7 +263,14 @@ Requirements:
 - Add helpful comments explaining what each test verifies
 - Tests should be educational - someone learning should understand them
 - Make tests that will PASS when the implementation is correct
-
+${language === 'python' ? `
+CRITICAL - Python import format:
+- Source modules live in the src/ package directory
+- All imports MUST use the "src." prefix: \`from src.module_name import ClassName\`
+- Example: \`from src.${toSnakeCase(deliverable.title)} import ${toPascalCase(deliverable.title)}\`
+- Do NOT import without the src. prefix (e.g., \`from ${toSnakeCase(deliverable.title)} import ...\` will FAIL)
+- Do NOT redefine classes that exist in the source module — import them instead
+` : ''}
 Return ONLY the complete test file, no explanations outside the code.`;
 
   const response = await client.messages.create({
@@ -313,6 +320,14 @@ function extractCode(text: string, _language: string): string {
 }
 
 // Helper functions
+function toPascalCase(str: string): string {
+  return str
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join('');
+}
+
 function toKebabCase(str: string): string {
   return str
     .replace(/[^a-zA-Z0-9]+/g, '-')
