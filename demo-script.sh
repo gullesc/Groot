@@ -201,7 +201,14 @@ pause
 
 echo_step "groot seed --phase 1 --template typescript"
 echo_info "Scaffolds Phase 1 with TypeScript + Jest template"
+echo_info "Template choice is saved to curriculum for future phases!"
 groot seed --phase 1 --template typescript
+
+pause
+
+echo_step "groot seed --phase 2 (no --template needed)"
+echo_info "Uses saved template automatically - no need to specify again"
+echo -e "${GREEN}groot seed --phase 2${NC}  # Would use typescript automatically"
 
 pause
 
@@ -408,12 +415,12 @@ cat << 'EOF'
 │   groot grow <topic>                Multi-agent review           │
 │   groot grow <topic> --debug        Show agent interactions      │
 ├─────────────────────────────────────────────────────────────────┤
-│ SCAFFOLDING                                                      │
-│   groot seed                        Interactive selection        │
-│   groot seed --phase N --template T Scaffold specific phase      │
+│ SCAFFOLDING (template saved & reused automatically)              │
+│   groot seed                        Select template (saved)      │
+│   groot seed --phase N              Uses saved template          │
+│   groot seed --phase N --template T Override saved template      │
 │   groot seed --tdd                  Include failing tests        │
 │   groot seed --dry-run              Preview without creating     │
-│   groot seed --skip-specs           Skip spec generation         │
 ├─────────────────────────────────────────────────────────────────┤
 │ SESSIONS                                                         │
 │   groot wake                        Start learning session       │

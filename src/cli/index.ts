@@ -1521,11 +1521,19 @@ program
 
       const phase = curriculum.phases.find(p => p.number === selectedPhase)!;
 
-      // Select template
-      let templateType: string = options.template || 'typescript';
+      // Select template - priority: CLI flag > saved in curriculum > prompt
+      let templateType: string;
 
-      if (!options.template) {
-        // Interactive template selection
+      if (options.template) {
+        // CLI flag takes priority
+        templateType = options.template;
+      } else if (curriculum.templateType) {
+        // Use saved template from curriculum
+        templateType = curriculum.templateType;
+        console.log(chalk.gray(`Using saved template: ${templateType}`));
+        console.log(chalk.gray(`(Use --template to override)\n`));
+      } else {
+        // Interactive template selection (first time)
         const availableTemplates = await getAvailableTemplateTypes();
         const templateChoices = await Promise.all(
           availableTemplates.map(async (t) => {
@@ -1538,7 +1546,7 @@ program
         );
 
         templateType = await select({
-          message: 'Select a project template:',
+          message: 'Select a project template (will be saved for future phases):',
           choices: templateChoices,
         });
       }
@@ -1660,6 +1668,13 @@ program
         }
       } else if (options.skipSpecs) {
         console.log(chalk.gray('\n   Skipping spec generation (--skip-specs)'));
+      }
+
+      // Save template choice to curriculum if this was the first selection
+      if (result.success && !options.dryRun && !curriculum.templateType) {
+        curriculum.templateType = templateType;
+        await saveCurriculum(curriculum);
+        console.log(chalk.green(`\n✅ Saved template "${templateType}" to curriculum for future phases`));
       }
 
       // Next steps with template-specific walkthrough

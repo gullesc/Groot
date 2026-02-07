@@ -154,10 +154,10 @@ groot ask "What is dependency injection?"
 groot remember "Key insight" -c "content"
 groot remember --list                    # List journal entries
 
-# Scaffolding
-groot seed                               # Interactive template/phase selection
-groot seed --phase 1 --template typescript  # TypeScript project
-groot seed --phase 2 --template python   # Python project
+# Scaffolding (template choice is saved and reused automatically)
+groot seed                               # First time: select template (saved to curriculum)
+groot seed --phase 2                     # Later: uses saved template automatically
+groot seed --phase 3 --template python   # Override saved template if needed
 groot seed --dry-run                     # Preview without creating files
 
 # Interactive curriculum generation

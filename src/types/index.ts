@@ -45,6 +45,7 @@ export interface Curriculum {
   currentPhaseIndex: number;
   growthStage: GrowthStage;
   metadata: CurriculumMetadata;
+  templateType?: TemplateType;  // Saved template choice for consistent scaffolding
 }
 
 export interface CurriculumMetadata {
