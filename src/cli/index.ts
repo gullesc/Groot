@@ -82,6 +82,7 @@ import {
 import {
   runPhaseTests,
   detectProjectType,
+  checkPythonEnvironment,
 } from '../core/test-runner';
 import {
   solveDeliverable,
@@ -1805,6 +1806,19 @@ program
 
       console.log(chalk.gray(`Detected project type: ${projectType}`));
 
+      // Show Python environment info for Python projects
+      if (projectType === 'python') {
+        const pythonEnv = await checkPythonEnvironment('python3');
+        if (pythonEnv.pythonVersion) {
+          console.log(chalk.gray(`Python: ${pythonEnv.pythonVersion} (${pythonEnv.pythonPath})`));
+          if (pythonEnv.pytestInstalled) {
+            console.log(chalk.gray(`pytest: ${pythonEnv.pytestVersion}`));
+          } else {
+            console.log(chalk.yellow(`pytest: not installed`));
+          }
+        }
+      }
+
       // Select phase
       let selectedPhase: number;
 
@@ -1897,6 +1911,14 @@ program
       if (results.error) {
         spinner.fail('Test run failed');
         console.error(chalk.red(`\n${results.error}`));
+
+        // Offer helpful suggestions based on the error
+        if (results.error.includes('pytest') || results.error.includes('Python not found')) {
+          console.log(chalk.yellow('\nTry running:'));
+          console.log(chalk.white('   groot bootstrap'));
+          console.log(chalk.gray('   ↳ Checks your Python environment and helps install dependencies\n'));
+        }
+
         process.exit(1);
       }
 
@@ -2315,6 +2337,111 @@ program
 
     } catch (error) {
       console.error(chalk.red('Error generating specs:'), error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// BOOTSTRAP COMMAND - Check Python environment and install dependencies
+// =============================================================================
+
+program
+  .command('bootstrap')
+  .description('Check Python environment and install missing dependencies')
+  .option('-p, --python <cmd>', 'Python command to use (default: python3)', 'python3')
+  .option('-a, --auto-install', 'Automatically install missing packages without prompting')
+  .action(async (options) => {
+    console.log(LOGO);
+    console.log(chalk.cyan('\nGROOT - Bootstrap Python Environment\n'));
+
+    const pythonCmd = options.python || 'python3';
+    const spinner = ora('Checking Python environment...').start();
+
+    try {
+      const env = await checkPythonEnvironment(pythonCmd);
+
+      if (env.error) {
+        spinner.fail('Python not found');
+        console.error(chalk.red(`\n${env.error}`));
+        console.log(chalk.yellow('\nMake sure Python is installed and in your PATH.'));
+        process.exit(1);
+      }
+
+      spinner.succeed(`Python ${env.pythonVersion} found`);
+      console.log(chalk.gray(`   Path: ${env.pythonPath}`));
+
+      // Check pytest
+      if (env.pytestInstalled) {
+        console.log(chalk.green(`\n✓ pytest ${env.pytestVersion} is installed`));
+      } else {
+        console.log(chalk.yellow(`\n⚠ pytest is not installed`));
+
+        if (options.autoInstall) {
+          const installSpinner = ora('Installing pytest...').start();
+          try {
+            const { spawn } = await import('child_process');
+            await new Promise<void>((resolve, reject) => {
+              const proc = spawn(pythonCmd, ['-m', 'pip', 'install', 'pytest'], {
+                stdio: 'inherit',
+                shell: true,
+              });
+              proc.on('close', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`pip install failed with code ${code}`));
+              });
+              proc.on('error', reject);
+            });
+            installSpinner.succeed('pytest installed successfully');
+          } catch (err) {
+            installSpinner.fail('Failed to install pytest');
+            console.error(chalk.red(`\nError: ${err}`));
+            process.exit(1);
+          }
+        } else {
+          console.log(chalk.cyan('\nTo install pytest, run:'));
+          console.log(chalk.white(`   ${pythonCmd} -m pip install pytest`));
+          console.log(chalk.gray('\nOr run with --auto-install to install automatically:'));
+          console.log(chalk.white(`   groot bootstrap --auto-install`));
+        }
+      }
+
+      // Check for requirements.txt
+      const requirementsPath = join(process.cwd(), 'requirements.txt');
+      if (existsSync(requirementsPath)) {
+        console.log(chalk.cyan('\n📦 requirements.txt found'));
+
+        if (options.autoInstall) {
+          const installSpinner = ora('Installing dependencies from requirements.txt...').start();
+          try {
+            const { spawn } = await import('child_process');
+            await new Promise<void>((resolve, reject) => {
+              const proc = spawn(pythonCmd, ['-m', 'pip', 'install', '-r', 'requirements.txt'], {
+                stdio: 'inherit',
+                shell: true,
+              });
+              proc.on('close', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`pip install failed with code ${code}`));
+              });
+              proc.on('error', reject);
+            });
+            installSpinner.succeed('Dependencies installed successfully');
+          } catch (err) {
+            installSpinner.fail('Failed to install dependencies');
+            console.error(chalk.red(`\nError: ${err}`));
+            process.exit(1);
+          }
+        } else {
+          console.log(chalk.gray('   To install all dependencies:'));
+          console.log(chalk.white(`   ${pythonCmd} -m pip install -r requirements.txt`));
+        }
+      }
+
+      console.log(chalk.green('\n✓ Environment check complete\n'));
+
+    } catch (error) {
+      spinner.fail('Error checking environment');
+      console.error(chalk.red(`\n${error}`));
       process.exit(1);
     }
   });

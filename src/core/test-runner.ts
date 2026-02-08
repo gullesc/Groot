@@ -34,6 +34,49 @@ export interface PhaseTestResults {
   error?: string;
 }
 
+export interface PythonEnvironment {
+  pythonPath: string;
+  pythonVersion: string;
+  pytestInstalled: boolean;
+  pytestVersion?: string;
+  error?: string;
+}
+
+/**
+ * Check Python environment for pytest availability
+ */
+export async function checkPythonEnvironment(pythonCmd: string = 'python3'): Promise<PythonEnvironment> {
+  const result: PythonEnvironment = {
+    pythonPath: '',
+    pythonVersion: '',
+    pytestInstalled: false,
+  };
+
+  // Get Python path and version
+  try {
+    const versionOutput = await runCommand(pythonCmd, ['--version'], { timeout: 10000 });
+    result.pythonVersion = versionOutput.trim().replace('Python ', '');
+
+    // Get the actual Python path (quote the code for shell execution)
+    const pathOutput = await runCommand(pythonCmd, ['-c', '"import sys; print(sys.executable)"'], { timeout: 10000 });
+    result.pythonPath = pathOutput.trim();
+  } catch (error) {
+    result.error = `Python not found. Make sure '${pythonCmd}' is installed and in your PATH.`;
+    return result;
+  }
+
+  // Check if pytest is installed (quote the code for shell execution)
+  try {
+    const pytestOutput = await runCommand(pythonCmd, ['-c', '"import pytest; print(pytest.__version__)"'], { timeout: 10000 });
+    result.pytestInstalled = true;
+    result.pytestVersion = pytestOutput.trim();
+  } catch {
+    result.pytestInstalled = false;
+  }
+
+  return result;
+}
+
 /**
  * Detect project type based on files present
  */
@@ -151,6 +194,20 @@ async function runPytestTests(
 ): Promise<PhaseTestResults> {
   result.testCommand = 'python3 -m pytest -v';
 
+  // Pre-flight check: verify Python and pytest are available
+  const pythonEnv = await checkPythonEnvironment('python3');
+
+  if (pythonEnv.error) {
+    result.error = pythonEnv.error;
+    return result;
+  }
+
+  if (!pythonEnv.pytestInstalled) {
+    result.error = `pytest is not installed in Python ${pythonEnv.pythonVersion} (${pythonEnv.pythonPath}).\n` +
+      `To fix this, run: python3 -m pip install pytest`;
+    return result;
+  }
+
   try {
     // Use python3 -m pytest for better macOS/venv compatibility
     const output = await runCommand('python3', ['-m', 'pytest', '-v', '--tb=short'], {
@@ -169,6 +226,13 @@ async function runPytestTests(
                    (error as { stderr?: string }).stderr ||
                    String(error);
     result.rawOutput = output;
+
+    // Check if this is a ModuleNotFoundError (pytest import issue)
+    if (output.includes('ModuleNotFoundError') && output.includes('pytest')) {
+      result.error = `pytest module error. Try reinstalling: python3 -m pip install --upgrade pytest`;
+      return result;
+    }
+
     result.results = parsePytestOutput(output, phase.deliverables);
     result.completedDeliverables = result.results.filter(r => r.passed).length;
     result.success = result.completedDeliverables === result.totalDeliverables;
