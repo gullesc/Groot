@@ -10,6 +10,7 @@ export * from './curriculum-beads';
 export * from './orchestrator';
 export * from './journal';
 export * from './session';
+export * from './qa-history';
 export * from './scaffold';
 export * from './hooks';
 export * from './plugin-discovery';

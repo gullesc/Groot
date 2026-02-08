@@ -549,3 +549,39 @@ export interface ExtendedScaffoldResult extends ScaffoldResult {
   specsGenerated?: string[];      // List of spec file paths
   constitutionPath?: string;      // Constitution file path
 }
+
+// ============================================================================
+// Q&A History Types
+// ============================================================================
+
+/**
+ * Context for a Q&A entry (auto-tagged from active curriculum/phase)
+ */
+export interface QAContext {
+  curriculumId?: string;
+  curriculumTitle?: string;
+  phaseNumber?: number;
+  phaseTitle?: string;
+  growthStage?: GrowthStage;
+}
+
+/**
+ * A single Q&A interaction entry
+ */
+export interface QAHistoryEntry {
+  id: string;                    // UUID
+  question: string;              // User's question
+  answer: string;                // Bark's response
+  timestamp: Date;               // When asked
+  context: QAContext;            // Auto-tagged phase/curriculum
+  sessionId?: string;            // Active session ID if present
+}
+
+/**
+ * The full Q&A history file structure
+ */
+export interface QAHistory {
+  version: string;               // Schema version for future migrations
+  entries: QAHistoryEntry[];     // All Q&A entries
+  lastUpdated: Date;
+}

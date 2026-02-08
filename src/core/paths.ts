@@ -8,6 +8,7 @@
  *   .groot/
  *   ├── curriculum.json      # The active curriculum
  *   ├── active-session.json  # Currently active learning session
+ *   ├── qa-history.json      # Q&A history from groot ask
  *   ├── sessions/            # Completed session records
  *   │   └── YYYY-MM-DD-phase-N.json
  *   └── journal/             # Learning journal entries
@@ -62,6 +63,20 @@ export function getSessionsDir(): string {
  */
 export function getJournalDir(): string {
   return join(getGrootDir(), 'journal');
+}
+
+/**
+ * Get the Q&A history file path
+ */
+export function getQAHistoryPath(): string {
+  return join(getGrootDir(), 'qa-history.json');
+}
+
+/**
+ * Check if Q&A history file exists
+ */
+export function hasQAHistory(): boolean {
+  return existsSync(getQAHistoryPath());
 }
 
 /**

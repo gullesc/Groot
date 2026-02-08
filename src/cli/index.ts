@@ -61,6 +61,10 @@ import {
   addQuestionAsked,
 } from '../core/session';
 import {
+  addQAEntry,
+  buildQAContext,
+} from '../core/qa-history';
+import {
   loadCurriculumJSON,
   updateCurriculumProgress,
   getCurrentCurriculum,
@@ -177,8 +181,11 @@ program
     console.log(chalk.green(`\n🪵 Bark is thinking...\n`));
 
     try {
-      // Log question to active session if one exists
+      // Load context for Q&A history
       const session = await loadActiveSession();
+      const curriculum = await getCurrentCurriculum();
+
+      // Log question to active session if one exists
       if (session && session.status === 'active') {
         addQuestionAsked(session, question);
         await saveActiveSession(session);
@@ -190,6 +197,10 @@ program
       console.log(chalk.cyan('─'.repeat(60)));
       console.log(response.content);
       console.log(chalk.cyan('─'.repeat(60)));
+
+      // Save to Q&A history
+      const qaContext = buildQAContext(curriculum, session);
+      await addQAEntry(question, response.content, qaContext, session?.id);
 
       if (options.verbose && response.toolCalls) {
         console.log(chalk.gray('\nTools used:'));
