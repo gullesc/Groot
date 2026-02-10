@@ -121,6 +121,90 @@ const LOGO = `
   Guided Resource for Organized Objective Training
 `;
 
+// ============================================================================
+// URL Detection and Fetching Helpers
+// ============================================================================
+
+/**
+ * Extract URLs from text
+ */
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+  const matches = text.match(urlRegex);
+  return matches || [];
+}
+
+/**
+ * Convert GitHub repo URL to raw README URL
+ */
+function getGitHubReadmeUrl(url: string): string | null {
+  // Match github.com/owner/repo patterns
+  const repoMatch = url.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!repoMatch || !repoMatch[1] || !repoMatch[2]) {
+    return null;
+  }
+  const owner = repoMatch[1];
+  const repo = repoMatch[2];
+  // Clean repo name (remove .git, trailing slashes, etc.)
+  let cleanRepo = repo.replace(/\.git$/, '');
+  // Remove path, hash, query params
+  if (cleanRepo.includes('/')) cleanRepo = cleanRepo.split('/')[0] ?? cleanRepo;
+  if (cleanRepo.includes('#')) cleanRepo = cleanRepo.split('#')[0] ?? cleanRepo;
+  if (cleanRepo.includes('?')) cleanRepo = cleanRepo.split('?')[0] ?? cleanRepo;
+  // Try main branch first, then master
+  return `https://raw.githubusercontent.com/${owner}/${cleanRepo}/main/README.md`;
+}
+
+/**
+ * Fetch content from a URL, with special handling for GitHub repos
+ */
+async function fetchUrlContent(url: string): Promise<{ success: boolean; content?: string; error?: string }> {
+  try {
+    // Check if it's a GitHub repo URL
+    const readmeUrl = getGitHubReadmeUrl(url);
+
+    if (readmeUrl) {
+      // Try main branch
+      let response = await fetch(readmeUrl);
+
+      // If main doesn't exist, try master
+      if (!response.ok) {
+        const masterUrl = readmeUrl.replace('/main/', '/master/');
+        response = await fetch(masterUrl);
+      }
+
+      if (response.ok) {
+        const content = await response.text();
+        return { success: true, content: content.substring(0, 15000) }; // Limit size
+      }
+    }
+
+    // For non-GitHub URLs or if README fetch failed, try fetching directly
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'GROOT-CLI/1.0',
+        'Accept': 'text/html,text/plain,text/markdown,*/*',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+
+    // Only process text content
+    if (contentType.includes('text/') || contentType.includes('application/json')) {
+      const content = await response.text();
+      return { success: true, content: content.substring(0, 15000) }; // Limit size
+    }
+
+    return { success: false, error: 'URL does not point to text content' };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 program
   .name('groot')
   .description('AI-powered learning curriculum generator')
@@ -1133,8 +1217,25 @@ program
 
           // Get the user's answer
           const answer = await input({
-            message: 'Your response:',
+            message: 'Your response (you can include URLs for reference):',
           });
+
+          // Check for URLs in the answer and auto-fetch their content
+          const urls = extractUrls(answer);
+          let fetchedContent = '';
+
+          if (urls.length > 0) {
+            console.log(chalk.gray(`   Detected ${urls.length} URL(s), fetching content...`));
+            for (const url of urls.slice(0, 3)) { // Limit to 3 URLs
+              const result = await fetchUrlContent(url);
+              if (result.success && result.content) {
+                console.log(chalk.green(`   ✓ Fetched content from ${url.substring(0, 50)}...`));
+                fetchedContent += `\n\n--- Content from ${url} ---\n${result.content}`;
+              } else {
+                console.log(chalk.yellow(`   ⚠ Could not fetch ${url}: ${result.error}`));
+              }
+            }
+          }
 
           // Ask if they want to provide more context
           const hasMore = await confirm({
@@ -1145,9 +1246,15 @@ program
           let additionalContext: string | undefined;
           if (hasMore) {
             console.log(chalk.gray('   (Enter your additional context, then press Enter)'));
-            additionalContext = await input({
+            const manualContext = await input({
               message: 'Additional context:',
             });
+            additionalContext = manualContext;
+          }
+
+          // Combine fetched content with manual context
+          if (fetchedContent) {
+            additionalContext = (additionalContext || '') + fetchedContent;
           }
 
           console.log(chalk.green('   ✓ Thank you! Incorporating your input...\n'));
