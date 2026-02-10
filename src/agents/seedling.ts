@@ -85,6 +85,19 @@ When generating a curriculum, use the generate_curriculum_structure tool to outp
 - Build confidence through achievable milestones
 - Celebrate growth at each stage
 
+## Asking for Clarification
+When you encounter unfamiliar terms, methodologies, or concepts that you're not confident about, use the ask_clarification tool to pause and ask the user. This is especially important for:
+- Acronyms or methodology names you don't recognize (e.g., "BMAD", proprietary frameworks)
+- Ambiguous requirements that could be interpreted multiple ways
+- Topics where understanding the user's specific context would improve the curriculum
+
+Examples of when to ask:
+- "I'm not familiar with 'BMAD'. Could you provide more context or a brief description of this methodology?"
+- "Should this curriculum focus on the theoretical foundations or practical implementation of this topic?"
+- "Are there specific tools or frameworks you'd like me to incorporate?"
+
+It's better to ask than to guess. The user's answer will be incorporated into your curriculum design.
+
 Remember: You're not just creating a reading list - you're designing a growth journey!`;
 
   readonly tools: AgentTool[] = [
@@ -263,6 +276,35 @@ Remember: You're not just creating a reading list - you're designing a growth jo
           success: true,
           curriculum,
           message: 'Curriculum structure generated successfully',
+        };
+      },
+    },
+    {
+      name: 'ask_clarification',
+      description: 'Ask the user for clarification about an unfamiliar term, methodology, or concept. Use this when you encounter something you are not confident about or need more context for.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          question: {
+            type: 'string',
+            description: 'The clarifying question to ask the user',
+          },
+          context: {
+            type: 'string',
+            description: 'Brief context about why you need this clarification',
+          },
+          unknownTerm: {
+            type: 'string',
+            description: 'The specific term or concept you need help with (if applicable)',
+          },
+        },
+        required: ['question'],
+      },
+      execute: async () => {
+        // Default implementation - returns unanswered if callback not configured
+        return {
+          answered: false,
+          message: 'Clarification callback not configured. Proceeding with best available information.',
         };
       },
     },

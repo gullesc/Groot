@@ -98,7 +98,19 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Send a message to the agent and get a response
+   * Override a tool's execute function at runtime.
+   * Used for injecting callbacks like clarification prompts.
+   */
+  setToolExecutor(toolName: string, executor: (input: unknown) => Promise<unknown>): void {
+    const tool = this.tools.find(t => t.name === toolName);
+    if (tool) {
+      (tool as { execute: typeof executor }).execute = executor;
+    }
+  }
+
+  /**
+   * Send a message to the agent and get a response.
+   * Implements an agentic loop that continues until the model stops calling tools.
    */
   async chat(userMessage: string): Promise<AgentResponse> {
     // Add user message to history
@@ -108,40 +120,80 @@ export abstract class BaseAgent {
       timestamp: new Date(),
     });
 
-    // Build messages array for API
+    // Build messages array for API (will be extended in the loop)
     const messages: Anthropic.MessageParam[] = this.context.conversationHistory.map(msg => ({
       role: msg.role,
       content: msg.content,
     }));
 
-    // Call Claude API
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 8192,  // Increased for complex tool outputs like curriculum generation
-      system: this.buildSystemPrompt(),
-      tools: this.getAnthropicTools().length > 0 ? this.getAnthropicTools() : undefined,
-      messages,
-    });
-
-    // Process response
     let assistantContent = '';
-    const toolCalls: AgentResponse['toolCalls'] = [];
+    const allToolCalls: AgentResponse['toolCalls'] = [];
+    const maxIterations = 10; // Safety limit for tool call loops
+    let iterations = 0;
 
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        assistantContent += block.text;
-      } else if (block.type === 'tool_use') {
-        // Execute the tool
-        const toolOutput = await this.executeTool(block.name, block.input);
-        toolCalls.push({
-          toolName: block.name,
-          input: block.input,
+    // Agentic loop: continue until model stops calling tools
+    while (iterations < maxIterations) {
+      iterations++;
+
+      // Call Claude API
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 8192,
+        system: this.buildSystemPrompt(),
+        tools: this.getAnthropicTools().length > 0 ? this.getAnthropicTools() : undefined,
+        messages,
+      });
+
+      // Process response blocks
+      const toolUseBlocks: Array<{ id: string; name: string; input: unknown }> = [];
+
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          assistantContent += block.text;
+        } else if (block.type === 'tool_use') {
+          toolUseBlocks.push({
+            id: block.id,
+            name: block.name,
+            input: block.input,
+          });
+        }
+      }
+
+      // If no tool calls, we're done
+      if (toolUseBlocks.length === 0 || response.stop_reason !== 'tool_use') {
+        break;
+      }
+
+      // Add assistant message with tool use to conversation
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+      });
+
+      // Execute tools and collect results
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolUse of toolUseBlocks) {
+        const toolOutput = await this.executeTool(toolUse.name, toolUse.input);
+        allToolCalls.push({
+          toolName: toolUse.name,
+          input: toolUse.input,
           output: toolOutput,
         });
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: JSON.stringify(toolOutput),
+        });
       }
+
+      // Add tool results as user message for next iteration
+      messages.push({
+        role: 'user',
+        content: toolResults,
+      });
     }
 
-    // Add assistant response to history
+    // Add final assistant response to history
     this.context.conversationHistory.push({
       role: 'assistant',
       content: assistantContent,
@@ -151,7 +203,7 @@ export abstract class BaseAgent {
 
     return {
       content: assistantContent,
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
     };
   }
 

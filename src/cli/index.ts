@@ -76,7 +76,7 @@ import {
   getCurriculumPath,
   initGrootDir,
 } from '../core/paths';
-import { Curriculum, AgentFeedback, Session } from '../types';
+import { Curriculum, AgentFeedback, Session, ClarificationCallback, ClarificationRequest } from '../types';
 import { input, select, checkbox, confirm } from '@inquirer/prompts';
 import {
   scaffoldPhase,
@@ -1106,6 +1106,52 @@ program
           if (options.debug) {
             formatDebugEvent(event);
           }
+        },
+        onClarificationNeeded: async (request: ClarificationRequest) => {
+          // Display the agent's question
+          console.log();
+          console.log(chalk.yellow('🌿 Seedling needs clarification:'));
+          if (request.context) {
+            console.log(chalk.gray(`   ${request.context}`));
+          }
+          if (request.unknownTerm) {
+            console.log(chalk.gray(`   Unknown term: "${request.unknownTerm}"`));
+          }
+          console.log(chalk.cyan(`   ${request.question}`));
+          console.log();
+
+          // Ask if user wants to provide an answer
+          const wantsToAnswer = await confirm({
+            message: 'Would you like to provide an answer?',
+            default: true,
+          });
+
+          if (!wantsToAnswer) {
+            console.log(chalk.gray('   Proceeding without additional context...'));
+            return { answer: '', skipped: true };
+          }
+
+          // Get the user's answer
+          const answer = await input({
+            message: 'Your response:',
+          });
+
+          // Ask if they want to provide more context
+          const hasMore = await confirm({
+            message: 'Would you like to provide additional context (e.g., paste documentation)?',
+            default: false,
+          });
+
+          let additionalContext: string | undefined;
+          if (hasMore) {
+            console.log(chalk.gray('   (Enter your additional context, then press Enter)'));
+            additionalContext = await input({
+              message: 'Additional context:',
+            });
+          }
+
+          console.log(chalk.green('   ✓ Thank you! Incorporating your input...\n'));
+          return { answer, additionalContext, skipped: false };
         },
       }
     );

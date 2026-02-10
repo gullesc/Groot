@@ -16,6 +16,8 @@ import {
   AgentFeedback,
   SharedContext,
   OrchestrationResult,
+  ClarificationCallback,
+  ClarificationRequest,
 } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,6 +35,7 @@ export interface OrchestratorCallbacks {
   onFeedback?: (feedback: AgentFeedback) => void;
   onLog?: (message: string) => void;
   onDebug?: (event: DebugEvent) => void;
+  onClarificationNeeded?: ClarificationCallback;
 }
 
 export interface DebugEvent {
@@ -129,6 +132,40 @@ export class Orchestrator {
    */
   async generateCurriculum(topic: string, context: SharedContext): Promise<Curriculum> {
     this.log(`Generating curriculum for: ${topic}`);
+
+    // Inject clarification callback if provided
+    if (this.callbacks.onClarificationNeeded) {
+      this.seedling.setToolExecutor('ask_clarification', async (input: unknown) => {
+        const { question, context: questionContext, unknownTerm } = input as ClarificationRequest;
+
+        this.emitDebug({
+          type: 'tool_call',
+          agent: 'seedling',
+          content: 'ask_clarification',
+          data: { question, context: questionContext, unknownTerm },
+        });
+
+        const response = await this.callbacks.onClarificationNeeded!({
+          question,
+          context: questionContext,
+          unknownTerm,
+        });
+
+        if (response.skipped) {
+          return {
+            answered: false,
+            message: 'User declined to provide clarification. Proceed with best available information.',
+          };
+        }
+
+        return {
+          answered: true,
+          userResponse: response.answer,
+          additionalContext: response.additionalContext,
+          message: `User clarified: ${response.answer}`,
+        };
+      });
+    }
 
     const prompt = `Generate a comprehensive, project-based learning curriculum for: "${topic}"
 

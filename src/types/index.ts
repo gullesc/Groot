@@ -551,6 +551,35 @@ export interface ExtendedScaffoldResult extends ScaffoldResult {
 }
 
 // ============================================================================
+// Clarification Types (Interactive Agent Queries)
+// ============================================================================
+
+/**
+ * Request from an agent to clarify an unfamiliar term or concept
+ */
+export interface ClarificationRequest {
+  question: string;           // The clarifying question to ask
+  context?: string;           // Why the agent needs this clarification
+  unknownTerm?: string;       // The specific term that's unfamiliar
+}
+
+/**
+ * User's response to a clarification request
+ */
+export interface ClarificationResponse {
+  answer: string;             // The user's answer
+  additionalContext?: string; // Optional extra context (e.g., pasted documentation)
+  skipped: boolean;           // True if user declined to answer
+}
+
+/**
+ * Callback type for handling clarification requests from agents
+ */
+export type ClarificationCallback = (
+  request: ClarificationRequest
+) => Promise<ClarificationResponse>;
+
+// ============================================================================
 // Q&A History Types
 // ============================================================================
 
