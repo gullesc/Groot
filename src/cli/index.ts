@@ -63,6 +63,7 @@ import {
 import {
   addQAEntry,
   buildQAContext,
+  getQAEntries,
 } from '../core/qa-history';
 import {
   loadCurriculumJSON,
@@ -276,7 +277,34 @@ program
       }
 
       const bark = createBarkAgent(config.anthropicApiKey!);
-      const response = await bark.chat(question);
+
+      // Load recent Q&A history to provide context
+      const recentQA = await getQAEntries({
+        curriculumId: curriculum?.id,
+      });
+
+      // Build context from recent Q&A (last 5 exchanges)
+      const recentExchanges = recentQA.slice(-5);
+      let contextPrompt = question;
+
+      if (recentExchanges.length > 0) {
+        const historyContext = recentExchanges.map(entry =>
+          `Q: ${entry.question}\nA: ${entry.answer.substring(0, 500)}${entry.answer.length > 500 ? '...' : ''}`
+        ).join('\n\n');
+
+        contextPrompt = `Here is our recent conversation history for context:
+
+${historyContext}
+
+---
+
+Now, the learner's current question is:
+${question}
+
+Please answer this question directly, taking into account any relevant context from our previous discussion.`;
+      }
+
+      const response = await bark.chat(contextPrompt);
 
       console.log(chalk.cyan('─'.repeat(60)));
       console.log(response.content);
